@@ -1,0 +1,27 @@
+#include <stdio.h>
+#include <string.h>
+
+void encrypt(char *plaintext, char *key) {
+    int len = strlen(plaintext), keyLen = strlen(key);
+    for (int i = 0, j = 0; i < len; i++) {
+        char shift = key[j % keyLen] - 'A';
+        if (plaintext[i] >= 'A' && plaintext[i] <= 'Z') {
+            printf("%c", (plaintext[i] - 'A' + shift) % 26 + 'A');
+            j++;
+        } else {
+            printf("%c", plaintext[i]);
+        }
+    }
+    printf("\n");
+}
+
+int main() {
+    char plaintext[100], key[100];
+    printf("Enter plaintext: ");
+    fgets(plaintext, sizeof(plaintext), stdin);
+    printf("Enter key: ");
+    fgets(key, sizeof(key), stdin);
+    key[strcspn(key, "\n")] = 0; // Remove newline character
+    encrypt(plaintext, key);
+    return 0;
+}
