@@ -1,0 +1,13 @@
+#include <stdio.h>
+
+int encrypt(int p, int a, int b) {
+    return (a * p + b) % 26;
+}
+
+int main() {
+    int a = 5, b = 3; // Example values
+    for (int p = 0; p < 26; p++) {
+        printf("Plaintext: %c -> Ciphertext: %c\n", p + 'A', encrypt(p, a, b) + 'A');
+    }
+    return 0;
+}
