@@ -1,0 +1,43 @@
+#include <stdio.h>
+
+int mod(int a, int b) {
+    return (a % b + b) % b;
+}
+
+int gcd(int a, int b) {
+    return b == 0 ? a : gcd(b, a % b);
+}
+
+int mod_inverse(int a, int m) {
+    for (int x = 1; x < m; x++) {
+        if (mod(a * x, m) == 1) return x;
+    }
+    return -1; // No modular inverse
+}
+
+void decrypt_affine(char *ciphertext, int a, int b) {
+    int m = 26; // Number of letters in the alphabet
+    int a_inv = mod_inverse(a, m);
+    if (a_inv == -1) {
+        printf("No modular inverse found.\n");
+        return;
+    }
+    
+    for (int i = 0; ciphertext[i] != '\0'; i++) {
+        if (ciphertext[i] >= 'A' && ciphertext[i] <= 'Z') {
+            char decrypted = mod(a_inv * (ciphertext[i] - 'A' - b), m) + 'A';
+            printf("%c", decrypted);
+        } else {
+            printf("%c", ciphertext[i]); // Non-alphabetic characters remain unchanged
+        }
+    }
+    printf("\n");
+}
+
+int main() {
+    char ciphertext[] = "YOUR_CIPHERTEXT_HERE"; // Replace with actual ciphertext
+    int a = 5; // Example value for 'a' (must be coprime with 26)
+    int b = 1; // Example value for 'b'
+    decrypt_affine(ciphertext, a, b);
+    return 0;
+}
