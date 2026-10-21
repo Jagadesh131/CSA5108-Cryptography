@@ -1,0 +1,36 @@
+
+#include <stdio.h>
+
+int main() {
+    char plain[] = "SENDMOREMONEY";
+    char target[] = "CASHNOTNEEDED";
+    char cipher[14], recovered[14];
+
+    int key[13] = {9, 0, 1, 7, 23, 15, 21,
+                   14, 11, 11, 2, 8, 9};
+    int newkey[13];
+    int i, p, c, t;
+
+    for (i = 0; i < 13; i++) {
+        p = plain[i] - 'A';
+        c = (p + key[i]) % 26;
+        cipher[i] = c + 'A';
+    }
+    cipher[13] = '\0';
+
+    printf("Ciphertext: %s\n", cipher);
+    printf("New key stream: ");
+
+    for (i = 0; i < 13; i++) {
+        c = cipher[i] - 'A';
+        t = target[i] - 'A';
+        newkey[i] = (c - t + 26) % 26;
+        recovered[i] = (c - newkey[i] + 26) % 26 + 'A';
+        printf("%d ", newkey[i]);
+    }
+
+    recovered[13] = '\0';
+    printf("\nDecrypted plaintext: %s\n", recovered);
+
+    return 0;
+}
