@@ -1,0 +1,50 @@
+#include <stdio.h>
+#include <string.h>
+#include <ctype.h>
+
+int main()
+{
+    char keyword[50];
+    char cipher[27];
+    char alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    int used[26] = {0};
+    int i, j = 0;
+
+    printf("Enter keyword: ");
+    scanf("%s", keyword);
+
+    /* Add keyword letters */
+    for(i = 0; keyword[i] != '\0'; i++)
+    {
+        char ch = toupper(keyword[i]);
+
+        if(ch >= 'A' && ch <= 'Z' && used[ch - 'A'] == 0)
+        {
+            cipher[j++] = ch;
+            used[ch - 'A'] = 1;
+        }
+    }
+
+    /* Add remaining alphabet letters */
+    for(i = 0; i < 26; i++)
+    {
+        if(used[i] == 0)
+        {
+            cipher[j++] = alphabet[i];
+        }
+    }
+
+    cipher[26] = '\0';
+
+    printf("\nPlain:  ");
+    for(i = 0; i < 26; i++)
+        printf("%c ", alphabet[i]);
+
+    printf("\nCipher: ");
+    for(i = 0; i < 26; i++)
+        printf("%c ", cipher[i]);
+
+    printf("\n");
+
+    return 0;
+}
