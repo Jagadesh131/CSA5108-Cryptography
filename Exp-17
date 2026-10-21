@@ -1,0 +1,30 @@
+
+#include <stdio.h>
+#include <stdint.h>
+
+int shifts[16] = {
+    1, 1, 2, 2, 2, 2, 2, 2,
+    1, 2, 2, 2, 2, 2, 2, 1
+};
+
+int main() {
+    uint32_t C = 0x0F0F0F0, D = 0x0F0F0F0;
+    uint32_t K[16];
+    int i;
+
+    for (i = 0; i < 16; i++) {
+        int s = shifts[i];
+
+        C = ((C << s) | (C >> (28 - s))) & 0x0FFFFFFF;
+        D = ((D << s) | (D >> (28 - s))) & 0x0FFFFFFF;
+
+        K[i] = (C ^ D);
+    }
+
+    printf("DES decryption round-key order:\n");
+
+    for (i = 15; i >= 0; i--)
+        printf("Round %2d: %07X\n", 16 - i, K[i]);
+
+    return 0;
+}
