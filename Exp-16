@@ -1,0 +1,67 @@
+
+#include <stdio.h>
+#include <string.h>
+#include <ctype.h>
+
+#define MAX 2000
+
+int main() {
+    char cipher[MAX], plain[MAX];
+    char englishOrder[] = "ETAOINSHRDLCUMWFGYPBVKJXQZ";
+    int freq[26] = {0}, order[26];
+    int i, j, temp, top;
+
+    printf("Enter ciphertext: ");
+    fgets(cipher, MAX, stdin);
+
+    printf("How many candidates (1-10)? ");
+    scanf("%d", &top);
+
+    if (top < 1) top = 1;
+    if (top > 10) top = 10;
+
+    for (i = 0; cipher[i] != '\0'; i++) {
+        if (isalpha((unsigned char)cipher[i]))
+            freq[toupper((unsigned char)cipher[i]) - 'A']++;
+    }
+
+    for (i = 0; i < 26; i++)
+        order[i] = i;
+
+    for (i = 0; i < 25; i++) {
+        for (j = i + 1; j < 26; j++) {
+            if (freq[order[j]] > freq[order[i]]) {
+                temp = order[i];
+                order[i] = order[j];
+                order[j] = temp;
+            }
+        }
+    }
+
+    printf("\nFrequency-based candidate:\n");
+
+    for (i = 0; i < 26; i++)
+        plain[i] = '?';
+
+    for (i = 0; i < 26; i++) {
+        int cipherLetter = order[i];
+        plain[cipherLetter] = englishOrder[i];
+    }
+
+    for (i = 0; cipher[i] != '\0'; i++) {
+        if (isalpha((unsigned char)cipher[i])) {
+            char ch = plain[toupper((unsigned char)cipher[i]) - 'A'];
+            if (islower((unsigned char)cipher[i]))
+                putchar(tolower((unsigned char)ch));
+            else
+                putchar(ch);
+        } else {
+            putchar(cipher[i]);
+        }
+    }
+
+    printf("\nNote: This basic version generates one candidate; "
+           "the requested count is limited to 10 for the interface.\n");
+
+    return 0;
+}
