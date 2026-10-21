@@ -1,0 +1,35 @@
+
+#include <stdio.h>
+#include <stdint.h>
+
+int main() {
+    uint32_t C = 0x0ABCDE1;
+    uint32_t D = 0x0123456;
+    uint64_t subkey;
+    int shift[16] = {
+        1, 1, 2, 2, 2, 2, 2, 2,
+        1, 2, 2, 2, 2, 2, 2, 1
+    };
+    int i, s;
+
+    C &= 0x0FFFFFFF;
+    D &= 0x0FFFFFFF;
+
+    printf("Illustrative 48-bit round subkeys:\n");
+
+    for (i = 0; i < 16; i++) {
+        s = shift[i];
+
+        C = ((C << s) | (C >> (28 - s))) & 0x0FFFFFFF;
+        D = ((D << s) | (D >> (28 - s))) & 0x0FFFFFFF;
+
+        /* Demonstration only: take 24 bits from each half */
+        subkey = ((uint64_t)(C & 0xFFFFFF) << 24)
+               | (D & 0xFFFFFF);
+
+        printf("K%-2d = %012llX\n",
+               i + 1, (unsigned long long)subkey);
+    }
+
+    return 0;
+}
