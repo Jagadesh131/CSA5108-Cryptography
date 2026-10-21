@@ -1,0 +1,92 @@
+
+#include <stdio.h>
+#include <string.h>
+#include <ctype.h>
+
+#define MAX 1000
+
+double english[26] = {
+    8.167, 1.492, 2.782, 4.253, 12.702, 2.228,
+    2.015, 6.094, 6.966, 0.153, 0.772, 4.025,
+    2.406, 6.749, 7.507, 1.929, 0.095, 5.987,
+    6.327, 9.056, 2.758, 0.978, 2.360, 0.150,
+    1.974, 0.074
+};
+
+int main() {
+    char cipher[MAX], candidate[26][MAX];
+    double score[26], expected, diff;
+    int count[26], shifts[26];
+    int i, j, k, n, top;
+
+    printf("Enter ciphertext: ");
+    fgets(cipher, MAX, stdin);
+
+    printf("How many candidates? ");
+    scanf("%d", &top);
+
+    if (top < 1) top = 1;
+    if (top > 26) top = 26;
+
+    for (i = 0; i < 26; i++) {
+        memset(count, 0, sizeof(count));
+        n = 0;
+
+        for (j = 0; cipher[j] != '\0'; j++) {
+            if (isalpha((unsigned char)cipher[j])) {
+                int x = toupper((unsigned char)cipher[j]) - 'A';
+                int y = (x - i + 26) % 26;
+                candidate[i][n++] = y + 'A';
+                count[y]++;
+            } else {
+                candidate[i][n++] = cipher[j];
+            }
+        }
+        candidate[i][n] = '\0';
+        shifts[i] = i;
+
+        n = 0;
+        for (j = 0; cipher[j] != '\0'; j++)
+            if (isalpha((unsigned char)cipher[j]))
+                n++;
+
+        score[i] = 0.0;
+
+        if (n > 0) {
+            for (k = 0; k < 26; k++) {
+                expected = n * english[k] / 100.0;
+                if (expected > 0) {
+                    diff = count[k] - expected;
+                    score[i] += diff * diff / expected;
+                }
+            }
+        }
+    }
+
+    for (i = 0; i < 25; i++) {
+        for (j = i + 1; j < 26; j++) {
+            if (score[j] < score[i]) {
+                double temp = score[i];
+                char tempText[MAX];
+                int tempShift = shifts[i];
+
+                score[i] = score[j];
+                score[j] = temp;
+
+                strcpy(tempText, candidate[i]);
+                strcpy(candidate[i], candidate[j]);
+                strcpy(candidate[j], tempText);
+
+                shifts[i] = shifts[j];
+                shifts[j] = tempShift;
+            }
+        }
+    }
+
+    printf("\nTop %d possible plaintexts:\n", top);
+    for (i = 0; i < top; i++)
+        printf("%d. Shift %d: %s\n",
+               i + 1, shifts[i], candidate[i]);
+
+    return 0;
+}
