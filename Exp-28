@@ -1,0 +1,123 @@
+/*
+ * ============================================================================
+ * Experiment 28: Modified Diffie-Hellman Protocol Analysis
+ * ============================================================================
+ * Question:
+ * 28. Write a C program for Diffie-Hellman protocol, each participant selects
+ *     a secret number x and sends the other participant a^x mod q for some
+ *     public number a. What would happen if the participants sent each other
+ *     x*a mod q for some public number a instead? Give at least one method
+ *     Alice and Bob could use to agree on a key. Can Eve break your system
+ *     without finding the secret numbers? Can Eve find the secret numbers?
+ *
+ * THEORETICAL ANALYSIS & ANSWERS:
+ * 1. What happens if participants send x*a mod q instead?
+ *    The exponentiation (Discrete Log Problem) is replaced with linear modular
+ *    multiplication, which offers NO cryptographic one-way hardness!
+ *
+ * 2. Method for Alice and Bob to agree on a key:
+ *    Alice sends Y_A = (x_A * a) mod q.
+ *    Bob sends Y_B   = (x_B * a) mod q.
+ *    Alice computes: K = (Y_B * x_A) mod q = (x_B * a * x_A) mod q.
+ *    Bob computes:   K = (Y_A * x_B) mod q = (x_A * a * x_B) mod q.
+ *    Both derive shared key: K = (x_A * x_B * a) mod q.
+ *
+ * 3. Can Eve break the system without finding secret numbers?
+ *    YES! Eve knows Y_A, Y_B, and public a.
+ *    Eve computes a^(-1) mod q.
+ *    Then Eve directly computes:
+ *        K = (Y_A * Y_B * a^(-1)) mod q = (x_A * a * x_B * a * a^(-1)) mod q
+ *          = (x_A * x_B * a) mod q.
+ *    Eve gets the shared key directly with a single modular inverse!
+ *
+ * 4. Can Eve find the secret numbers?
+ *    YES! Since Y_A = (x_A * a) mod q, Eve computes:
+ *        x_A = (Y_A * a^(-1)) mod q
+ *        x_B = (Y_B * a^(-1)) mod q
+ *    Finding secret numbers is as simple as running Euclid's algorithm!
+ * ============================================================================
+ */
+
+#include <stdio.h>
+
+long long extended_euclidean(long long a, long long b, long long *x, long long *y) {
+    if (b == 0) {
+        *x = 1;
+        *y = 0;
+        return a;
+    }
+    long long x1, y1;
+    long long g = extended_euclidean(b, a % b, &x1, &y1);
+    *x = y1;
+    *y = x1 - (a / b) * y1;
+    return g;
+}
+
+long long mod_inverse(long long a, long long m) {
+    long long x, y;
+    long long g = extended_euclidean(a, m, &x, &y);
+    if (g != 1) return -1;
+    return (x % m + m) % m;
+}
+
+int main() {
+    long long q = 353; /* Public prime */
+    long long a = 11;  /* Public multiplier */
+
+    /* Alice and Bob select secret numbers */
+    long long x_A = 97;  /* Alice's secret */
+    long long x_B = 233; /* Bob's secret */
+
+    printf("============================================================\n");
+    printf("Experiment 28: Modified Diffie-Hellman (Linear Multiplicative)\n");
+    printf("============================================================\n");
+    printf("Public Parameters: q = %lld (prime), a = %lld\n", q, a);
+    printf("Alice's Secret   : x_A = %lld\n", x_A);
+    printf("Bob's Secret     : x_B = %lld\n", x_B);
+
+    /* Alice and Bob transmit Y_A and Y_B */
+    long long Y_A = (x_A * a) % q;
+    long long Y_B = (x_B * a) % q;
+    printf("\n[Transmission]\n");
+    printf("Alice sends Y_A = (x_A * a) mod q = (%lld * %lld) mod %lld = %lld\n",
+           x_A, a, q, Y_A);
+    printf("Bob sends Y_B   = (x_B * a) mod q = (%lld * %lld) mod %lld = %lld\n",
+           x_B, a, q, Y_B);
+
+    /* Alice and Bob calculate shared key */
+    long long K_Alice = (Y_B * x_A) % q;
+    long long K_Bob   = (Y_A * x_B) % q;
+    printf("\n[Shared Key Agreement]\n");
+    printf("Alice calculates: K = (Y_B * x_A) mod q = %lld\n", K_Alice);
+    printf("Bob calculates  : K = (Y_A * x_B) mod q = %lld\n", K_Bob);
+
+    /* Eve's Attack */
+    printf("\n--- Eve's Cryptanalysis ---\n");
+    long long a_inv = mod_inverse(a, q);
+    printf("1. Eve calculates modular inverse of public 'a':\n");
+    printf("   a^(-1) mod q = %lld^(-1) mod %lld = %lld\n", a, q, a_inv);
+
+    /* Attack 1: Eve finds key WITHOUT finding secrets */
+    long long K_Eve = (((Y_A * Y_B) % q) * a_inv) % q;
+    printf("\n2. Can Eve find the key WITHOUT finding secrets?\n");
+    printf("   YES! K_Eve = (Y_A * Y_B * a^(-1)) mod q = %lld (Matches K: %s)\n",
+           K_Eve, (K_Eve == K_Alice) ? "YES" : "NO");
+
+    /* Attack 2: Eve finds the secret numbers */
+    long long cracked_xA = (Y_A * a_inv) % q;
+    long long cracked_xB = (Y_B * a_inv) % q;
+    printf("\n3. Can Eve find the secret numbers?\n");
+    printf("   YES!\n");
+    printf("   x_A = (Y_A * a^(-1)) mod q = (%lld * %lld) mod %lld = %lld (Actual: %lld)\n",
+           Y_A, a_inv, q, cracked_xA, x_A);
+    printf("   x_B = (Y_B * a^(-1)) mod q = (%lld * %lld) mod %lld = %lld (Actual: %lld)\n",
+           Y_B, a_inv, q, cracked_xB, x_B);
+
+    printf("\nCONCLUSION:\n");
+    printf("Linear multiplication mod q provides NO cryptographic security\n");
+    printf("because modular division is easily computable via Euclid's algorithm.\n");
+    printf("Standard Diffie-Hellman requires modular exponentiation (a^x mod q).\n");
+    printf("============================================================\n");
+
+    return 0;
+}

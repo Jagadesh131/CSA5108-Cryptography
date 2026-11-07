@@ -1,0 +1,120 @@
+/*
+ * ============================================================================
+ * Experiment 24: RSA Key Generation and Extended Euclidean Algorithm
+ * ============================================================================
+ * Question:
+ * 24. Write a C program for RSA system, the public key of a given user is
+ *     e = 31, n = 3599. What is the private key of this user?
+ *     Hint: First use trial-and-error to determine p and q; then use the
+ *     extended Euclidean algorithm to find the multiplicative inverse of 31
+ *     modulo phi(n).
+ * ============================================================================
+ */
+
+#include <stdio.h>
+#include <math.h>
+
+/* Extended Euclidean Algorithm: finds gcd and x such that a*x + b*y = gcd */
+long long extended_euclidean(long long a, long long b, long long *x, long long *y) {
+    if (b == 0) {
+        *x = 1;
+        *y = 0;
+        return a;
+    }
+    long long x1, y1;
+    long long gcd = extended_euclidean(b, a % b, &x1, &y1);
+    *x = y1;
+    *y = x1 - (a / b) * y1;
+    return gcd;
+}
+
+/* Multiplicative inverse: a^(-1) mod m */
+long long mod_inverse(long long a, long long m) {
+    long long x, y;
+    long long g = extended_euclidean(a, m, &x, &y);
+    if (g != 1) {
+        return -1; /* Inverse doesn't exist */
+    }
+    return (x % m + m) % m;
+}
+
+/* Modular exponentiation: (base^exp) % mod */
+long long mod_exp(long long base, long long exp, long long mod) {
+    long long res = 1;
+    base = base % mod;
+    while (exp > 0) {
+        if (exp % 2 == 1) res = (res * base) % mod;
+        base = (base * base) % mod;
+        exp /= 2;
+    }
+    return res;
+}
+
+int main() {
+    long long n = 3599;
+    long long e = 31;
+    long long p = 0, q = 0;
+    long long phi_n;
+    long long d;
+    long long i;
+
+    printf("============================================================\n");
+    printf("Experiment 24: Finding RSA Private Key (n = %lld, e = %lld)\n", n, e);
+    printf("============================================================\n");
+
+    /* Step 1: Factor n using trial division */
+    printf("\n[Step 1] Factoring n = %lld by trial division...\n", n);
+    for (i = 2; i * i <= n; i++) {
+        if (n % i == 0) {
+            p = i;
+            q = n / i;
+            break;
+        }
+    }
+
+    if (p == 0) {
+        printf("Error: Could not factor n = %lld!\n", n);
+        return 1;
+    }
+
+    printf("  Found prime factor p = %lld\n", p);
+    printf("  Found prime factor q = %lld\n", q);
+    printf("  Check: %lld * %lld = %lld\n", p, q, p * q);
+
+    /* Step 2: Calculate Euler's Totient phi(n) = (p - 1) * (q - 1) */
+    phi_n = (p - 1) * (q - 1);
+    printf("\n[Step 2] Calculating Euler's Totient phi(n):\n");
+    printf("  phi(n) = (p - 1) * (q - 1) = (%lld - 1) * (%lld - 1) = %lld\n",
+           p, q, phi_n);
+
+    /* Step 3: Use Extended Euclidean Algorithm to find d = e^(-1) mod phi(n) */
+    printf("\n[Step 3] Finding private exponent d = %lld^(-1) mod %lld:\n", e, phi_n);
+    d = mod_inverse(e, phi_n);
+
+    if (d == -1) {
+        printf("Error: Inverse does not exist (gcd(e, phi(n)) != 1)\n");
+        return 1;
+    }
+
+    printf("  Private key d = %lld\n", d);
+    printf("  Verification: (e * d) mod phi(n) = (%lld * %lld) mod %lld = %lld\n",
+           e, d, phi_n, (e * d) % phi_n);
+
+    /* Step 4: Verification via Encryption & Decryption */
+    printf("\n[Step 4] Demonstration with a test plaintext block:\n");
+    long long message = 1234;
+    long long ciphertext = mod_exp(message, e, n);
+    long long decrypted  = mod_exp(ciphertext, d, n);
+
+    printf("  Original Message  : %lld\n", message);
+    printf("  Encrypted (C = M^e mod n): %lld\n", ciphertext);
+    printf("  Decrypted (M = C^d mod n): %lld\n", decrypted);
+    printf("  Match status      : %s\n", (message == decrypted) ? "SUCCESS" : "FAIL");
+
+    printf("\nSUMMARY:\n");
+    printf("  Public Key  : (e = %lld, n = %lld)\n", e, n);
+    printf("  Private Key : (d = %lld, n = %lld)\n", d, n);
+    printf("============================================================\n");
+
+    return 0;
+}

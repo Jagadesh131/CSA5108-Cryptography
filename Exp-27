@@ -1,0 +1,106 @@
+/*
+ * ============================================================================
+ * Experiment 27: Attack on Character-by-Character RSA Encryption
+ * ============================================================================
+ * Question:
+ * 27. Write a C program for Bob uses the RSA cryptosystem with a very large
+ *     modulus n for which the factorization cannot be found in a reasonable
+ *     amount of time. Suppose Alice sends a message to Bob by representing
+ *     each alphabetic character as an integer between 0 and 25 (A=0, ..., Z=25)
+ *     and then encrypting each number separately using RSA with large e and
+ *     large n. Is this method secure? If not, describe the most efficient
+ *     attack against this encryption method.
+ *
+ * THEORETICAL ANALYSIS & ANSWER:
+ * Is this method secure? NO, IT IS TOTALLY INSECURE!
+ * Most efficient attack: A Precomputation / Dictionary (Codebook) Attack.
+ *
+ * Because there are only 26 possible plaintext values (0 to 25 for 'A'-'Z'):
+ * 1. The adversary Eve knows public key (e, n).
+ * 2. Eve simply calculates C_i = i^e mod n for each i in {0, 1, ..., 25}.
+ *    This requires ONLY 26 modular exponentiations (done in milliseconds)!
+ * 3. Eve creates a lookup table mapping C_i -> character 'A' + i.
+ * 4. When Alice sends her ciphertext numbers, Eve looks each one up in the
+ *    table in O(1) time and reads the entire plaintext instantly!
+ * No factorization of n or knowledge of private key d is needed!
+ * ============================================================================
+ */
+
+#include <stdio.h>
+#include <string.h>
+
+long long mod_exp(long long base, long long exp, long long mod) {
+    long long res = 1;
+    base = base % mod;
+    while (exp > 0) {
+        if (exp % 2 == 1) res = (res * base) % mod;
+        base = (base * base) % mod;
+        exp /= 2;
+    }
+    return res;
+}
+
+int main() {
+    /* Large RSA parameters (factorization computationally intractable) */
+    long long n = 1000000007; /* Illustrative large modulus */
+    long long e = 65537;      /* Standard large public exponent */
+
+    char message[] = "ATTACKATDAWN";
+    int len = strlen(message);
+    long long ciphertext[100];
+    int i;
+
+    printf("============================================================\n");
+    printf("Experiment 27: Dictionary Attack on Character-by-Character RSA\n");
+    printf("============================================================\n");
+    printf("Public Key: n = %lld, e = %lld\n", n, e);
+    printf("Original Message: %s\n", message);
+
+    /* Alice encrypts character-by-character: C = (char - 'A')^e mod n */
+    printf("\n--- Alice Encrypts Characters Separately ---\n");
+    for (i = 0; i < len; i++) {
+        long long m = message[i] - 'A';
+        ciphertext[i] = mod_exp(m, e, n);
+        printf("%c -> M=%2lld -> C=%lld\n", message[i], m, ciphertext[i]);
+    }
+
+    /* Eve's Attack:
+     * Eve computes a 26-entry lookup table: Table[i] = i^e mod n
+     */
+    printf("\n--- Eve Precomputes 26-Entry Dictionary Table ---\n");
+    long long codebook[26];
+    for (i = 0; i < 26; i++) {
+        codebook[i] = mod_exp(i, e, n);
+    }
+    printf("Precomputed all 26 possible RSA ciphertexts in < 1 millisecond!\n");
+    printf("Sample entries: 'A'(0) -> %lld, 'B'(1) -> %lld, 'Z'(25) -> %lld\n",
+           codebook[0], codebook[1], codebook[25]);
+
+    /* Eve intercepts ciphertext stream and recovers plaintext in O(1) */
+    printf("\n--- Eve Decrypts Alice's Ciphertext (Without Private Key d) ---\n");
+    char intercepted_plaintext[100];
+    for (i = 0; i < len; i++) {
+        long long c = ciphertext[i];
+        char found = '?';
+        int k;
+        for (k = 0; k < 26; k++) {
+            if (codebook[k] == c) {
+                found = 'A' + k;
+                break;
+            }
+        }
+        intercepted_plaintext[i] = found;
+    }
+    intercepted_plaintext[len] = '\0';
+
+    printf("Intercepted Ciphertext Successfully Decrypted: %s\n", intercepted_plaintext);
+    printf("Match status: %s\n", (strcmp(message, intercepted_plaintext) == 0) ? "SUCCESS" : "FAIL");
+
+    printf("\nCONCLUSION:\n");
+    printf("Encrypting small messages (or single characters) directly with RSA is\n");
+    printf("completely insecure against precomputation dictionary attacks.\n");
+    printf("Remedy: Always use randomized padding schemes like RSA-OAEP!\n");
+    printf("============================================================\n");
+
+    return 0;
+}

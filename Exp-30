@@ -1,0 +1,146 @@
+/*
+ * ============================================================================
+ * Experiment 30: CBC-MAC Extension Forgery on One-Block Messages
+ * ============================================================================
+ * Question:
+ * 30. Write a C program for CBC MAC of a one-block message X, say T = MAC(K, X),
+ *     the adversary immediately knows the CBC MAC for the two-block message
+ *     X || (X ^ T) since this is once again.
+ *
+ * THEORETICAL ANALYSIS & FORGERY PROOF:
+ * Let E_K be a block cipher with key K.
+ * For a one-block message X (with IV = 0):
+ *     T = MAC(K, X) = E_K(X)
+ *
+ * Now consider the two-block message: M' = X || (X ^ T)
+ * - Block 1: X_1 = X
+ * - Block 2: X_2 = X ^ T
+ *
+ * When calculating the CBC-MAC of M':
+ *   C_1 = E_K(X_1 ^ IV) = E_K(X ^ 0) = E_K(X) = T
+ *   C_2 = E_K(X_2 ^ C_1) = E_K((X ^ T) ^ T) = E_K(X ^ (T ^ T)) = E_K(X) = T!
+ *
+ * Therefore:
+ *     MAC(K, X || (X ^ T)) = T
+ *
+ * The adversary can forge a valid MAC for the two-block message X || (X ^ T)
+ * WITHOUT knowing the secret key K!
+ * ============================================================================
+ */
+
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+
+#define BLOCK_SIZE 8
+
+/* Block cipher encryption (Illustrative Feistel cipher) */
+static uint32_t round_func(uint32_t r, uint32_t subkey) {
+    uint32_t x = r ^ subkey;
+    return ((x << 5) | (x >> 27)) + 0x9E3779B9;
+}
+
+void block_encrypt(const uint8_t in[BLOCK_SIZE], uint8_t out[BLOCK_SIZE], const uint8_t key[BLOCK_SIZE]) {
+    uint32_t L = ((uint32_t)in[0] << 24) | ((uint32_t)in[1] << 16) | ((uint32_t)in[2] << 8) | in[3];
+    uint32_t R = ((uint32_t)in[4] << 24) | ((uint32_t)in[5] << 16) | ((uint32_t)in[6] << 8) | in[7];
+    uint32_t k0 = ((uint32_t)key[0] << 24) | ((uint32_t)key[1] << 16) | ((uint32_t)key[2] << 8) | key[3];
+    uint32_t k1 = ((uint32_t)key[4] << 24) | ((uint32_t)key[5] << 16) | ((uint32_t)key[6] << 8) | key[7];
+    uint32_t subkeys[4] = { k0, k1, k0 ^ 0x55555555, k1 ^ 0xAAAAAAAA };
+    int i;
+
+    for (i = 0; i < 4; i++) {
+        uint32_t next_R = L ^ round_func(R, subkeys[i]);
+        L = R;
+        R = next_R;
+    }
+
+    out[0] = (uint8_t)(R >> 24); out[1] = (uint8_t)(R >> 16); out[2] = (uint8_t)(R >> 8); out[3] = (uint8_t)R;
+    out[4] = (uint8_t)(L >> 24); out[5] = (uint8_t)(L >> 16); out[6] = (uint8_t)(L >> 8); out[7] = (uint8_t)L;
+}
+
+/* CBC-MAC function over an array of blocks */
+void cbc_mac(const uint8_t *msg, int num_blocks, const uint8_t key[BLOCK_SIZE], uint8_t mac_tag[BLOCK_SIZE]) {
+    uint8_t state[BLOCK_SIZE];
+    uint8_t block[BLOCK_SIZE];
+    int i, j;
+
+    memset(state, 0, BLOCK_SIZE); /* Standard IV = 0 */
+
+    for (i = 0; i < num_blocks; i++) {
+        for (j = 0; j < BLOCK_SIZE; j++) {
+            block[j] = msg[i * BLOCK_SIZE + j] ^ state[j];
+        }
+        block_encrypt(block, state, key);
+    }
+    memcpy(mac_tag, state, BLOCK_SIZE);
+}
+
+void print_hex(const char *label, const uint8_t *data, int len) {
+    int i;
+    printf("%-24s: ", label);
+    for (i = 0; i < len; i++) {
+        printf("%02X ", data[i]);
+    }
+    printf("\n");
+}
+
+int main() {
+    uint8_t key[BLOCK_SIZE] = { 0x2B, 0x7E, 0x15, 0x16, 0x28, 0xAE, 0xD2, 0xA6 };
+
+    /* One-block message X (8 bytes) */
+    uint8_t X[BLOCK_SIZE] = "MESSAGE1";
+    uint8_t T[BLOCK_SIZE]; /* Tag for X */
+
+    printf("============================================================\n");
+    printf("Experiment 30: CBC-MAC Forgery on One-Block Message\n");
+    printf("============================================================\n");
+
+    /* Step 1: Honest computation of MAC(K, X) */
+    cbc_mac(X, 1, key, T);
+    print_hex("Secret Key K", key, BLOCK_SIZE);
+    print_hex("One-block message X", X, BLOCK_SIZE);
+    print_hex("Valid MAC Tag T = MAC(K, X)", T, BLOCK_SIZE);
+
+    /* Step 2: Adversary intercepts (X, T) and constructs two-block message:
+     * Block 1: X
+     * Block 2: X ^ T
+     */
+    printf("\n--- Adversary's Forgery Construction (Without Key K) ---\n");
+    uint8_t forged_msg[2 * BLOCK_SIZE];
+    int i;
+
+    /* Copy X into block 1 */
+    memcpy(forged_msg, X, BLOCK_SIZE);
+
+    /* Construct block 2: X ^ T */
+    for (i = 0; i < BLOCK_SIZE; i++) {
+        forged_msg[BLOCK_SIZE + i] = X[i] ^ T[i];
+    }
+
+    print_hex("Forged Block 1 (X)", forged_msg, BLOCK_SIZE);
+    print_hex("Forged Block 2 (X ^ T)", forged_msg + BLOCK_SIZE, BLOCK_SIZE);
+    print_hex("Adversary's Claimed Tag", T, BLOCK_SIZE);
+
+    /* Step 3: Verifier receives forged_msg and computes CBC-MAC using secret key K */
+    printf("\n--- Receiver Verifies CBC-MAC of Forged Message ---\n");
+    uint8_t computed_tag[BLOCK_SIZE];
+    cbc_mac(forged_msg, 2, key, computed_tag);
+    print_hex("Receiver Computed MAC", computed_tag, BLOCK_SIZE);
+
+    /* Check if forged tag matches */
+    if (memcmp(T, computed_tag, BLOCK_SIZE) == 0) {
+        printf("\nFORGERY SUCCESSFUL!\n");
+        printf("MAC(K, X || (X ^ T)) == T is mathematically IDENTICAL!\n");
+        printf("The receiver accepts the unauthorized two-block message as authentic!\n");
+    } else {
+        printf("\nFORGERY FAILED!\n");
+    }
+
+    printf("\nMITIGATION:\n");
+    printf("Basic CBC-MAC is insecure for variable-length messages.\n");
+    printf("Modern standards use CMAC (NIST SP 800-38B), which XORs the final\n");
+    printf("block with derived subkeys (K1 or K2) to prevent extension attacks.\n");
+    printf("============================================================\n");
+
+    return 0;
+}

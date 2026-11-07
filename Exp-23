@@ -1,0 +1,216 @@
+/*
+ * ============================================================================
+ * Experiment 23: Counter (CTR) Mode with Simplified DES (S-DES)
+ * ============================================================================
+ * Question:
+ * 23. Write a C program for Encrypt and decrypt in counter mode using one of
+ *     the following ciphers: affine modulo 256, Hill modulo 256, S-DES.
+ *     Test data for S-DES using a counter starting at 0000 0000. A binary
+ *     plaintext of 0000 0001 0000 0010 0000 0100 encrypted with a binary key
+ *     of 01111 11101 should give a binary ciphertext of
+ *     0011 1000 0100 1111 0011 0010. Decryption should work correspondingly.
+ * ============================================================================
+ */
+
+#include <stdio.h>
+#include <stdint.h>
+
+static const int P10[] = { 3, 5, 2, 7, 4, 10, 1, 9, 8, 6 };
+static const int P8[]  = { 6, 3, 7, 4, 8, 5, 10, 9 };
+static const int IP[]  = { 2, 6, 3, 1, 4, 8, 5, 7 };
+static const int INV_IP[] = { 4, 1, 3, 5, 7, 2, 8, 6 };
+static const int EP[]  = { 4, 1, 2, 3, 2, 3, 4, 1 };
+static const int P4[]  = { 2, 4, 3, 1 };
+
+static const int S0[4][4] = {
+    { 1, 0, 3, 2 },
+    { 3, 2, 1, 0 },
+    { 0, 2, 1, 3 },
+    { 3, 1, 3, 2 }
+};
+
+static const int S1[4][4] = {
+    { 0, 1, 2, 3 },
+    { 2, 0, 1, 3 },
+    { 3, 0, 1, 0 },
+    { 2, 1, 0, 3 }
+};
+
+void print_binary8(uint8_t val) {
+    int i;
+    for (i = 7; i >= 0; i--) {
+        printf("%d", (val >> i) & 1);
+        if (i == 4) printf(" ");
+    }
+}
+
+void print_binary10(uint16_t val) {
+    int i;
+    for (i = 9; i >= 0; i--) {
+        printf("%d", (val >> i) & 1);
+        if (i == 5) printf(" ");
+    }
+}
+
+void sdes_key_schedule(uint16_t key10, uint8_t *k1, uint8_t *k2) {
+    int bits[10], p10_bits[10];
+    int l1[5], r1[5], l2[5], r2[5];
+    int c1[10], c2[10];
+    int i;
+
+    for (i = 0; i < 10; i++) {
+        bits[i] = (key10 >> (9 - i)) & 1;
+    }
+    for (i = 0; i < 10; i++) {
+        p10_bits[i] = bits[P10[i] - 1];
+    }
+
+    for (i = 0; i < 5; i++) {
+        l1[i] = p10_bits[(i + 1) % 5];
+        r1[i] = p10_bits[5 + ((i + 1) % 5)];
+        c1[i] = l1[i];
+        c1[5 + i] = r1[i];
+    }
+
+    *k1 = 0;
+    for (i = 0; i < 8; i++) {
+        *k1 = (*k1 << 1) | c1[P8[i] - 1];
+    }
+
+    for (i = 0; i < 5; i++) {
+        l2[i] = l1[(i + 2) % 5];
+        r2[i] = r1[(i + 2) % 5];
+        c2[i] = l2[i];
+        c2[5 + i] = r2[i];
+    }
+
+    *k2 = 0;
+    for (i = 0; i < 8; i++) {
+        *k2 = (*k2 << 1) | c2[P8[i] - 1];
+    }
+}
+
+static uint8_t f_k(uint8_t r_nibble, uint8_t subkey) {
+    int r_bits[4], ep_bits[8], xored[8];
+    int l_nib[4], r_nib[4];
+    int r0, c0, r1, c1, v0, v1;
+    int out4[4], p4_out[4];
+    uint8_t result = 0;
+    int i;
+
+    for (i = 0; i < 4; i++) {
+        r_bits[i] = (r_nibble >> (3 - i)) & 1;
+    }
+    for (i = 0; i < 8; i++) {
+        ep_bits[i] = r_bits[EP[i] - 1];
+        xored[i] = ep_bits[i] ^ ((subkey >> (7 - i)) & 1);
+    }
+    for (i = 0; i < 4; i++) {
+        l_nib[i] = xored[i];
+        r_nib[i] = xored[4 + i];
+    }
+
+    r0 = (l_nib[0] << 1) | l_nib[3];
+    c0 = (l_nib[1] << 1) | l_nib[2];
+    v0 = S0[r0][c0];
+
+    r1 = (r_nib[0] << 1) | r_nib[3];
+    c1 = (r_nib[1] << 1) | r_nib[2];
+    v1 = S1[r1][c1];
+
+    out4[0] = (v0 >> 1) & 1;
+    out4[1] = v0 & 1;
+    out4[2] = (v1 >> 1) & 1;
+    out4[3] = v1 & 1;
+
+    for (i = 0; i < 4; i++) {
+        p4_out[i] = out4[P4[i] - 1];
+        result = (result << 1) | p4_out[i];
+    }
+    return result;
+}
+
+uint8_t sdes_encrypt_byte(uint8_t pt, uint8_t k1, uint8_t k2) {
+    int pt_bits[8], ip_bits[8];
+    uint8_t L, R, new_L, new_R, out_L, out_R;
+    int comb[8];
+    uint8_t result = 0;
+    int i;
+
+    for (i = 0; i < 8; i++) {
+        pt_bits[i] = (pt >> (7 - i)) & 1;
+    }
+    for (i = 0; i < 8; i++) {
+        ip_bits[i] = pt_bits[IP[i] - 1];
+    }
+
+    L = (ip_bits[0] << 3) | (ip_bits[1] << 2) | (ip_bits[2] << 1) | ip_bits[3];
+    R = (ip_bits[4] << 3) | (ip_bits[5] << 2) | (ip_bits[6] << 1) | ip_bits[7];
+
+    /* Round 1 */
+    new_R = L ^ f_k(R, k1);
+    new_L = R;
+
+    /* Round 2 */
+    out_L = new_L ^ f_k(new_R, k2);
+    out_R = new_R;
+
+    for (i = 0; i < 4; i++) {
+        comb[i] = (out_L >> (3 - i)) & 1;
+        comb[4 + i] = (out_R >> (3 - i)) & 1;
+    }
+    for (i = 0; i < 8; i++) {
+        result = (result << 1) | comb[INV_IP[i] - 1];
+    }
+    return result;
+}
+
+int main() {
+    uint16_t key = 0x1FD; /* 01111 11101 (binary) */
+    uint8_t counter = 0x00; /* 0000 0000 (binary) */
+    uint8_t p[3] = { 0x01, 0x02, 0x04 }; /* 0000 0001, 0000 0010, 0000 0100 */
+    uint8_t c[3];
+    uint8_t d[3];
+    uint8_t expected[3] = { 0x38, 0x4F, 0x32 }; /* 0011 1000, 0100 1111, 0011 0010 */
+    uint8_t k1, k2;
+    int i;
+
+    printf("============================================================\n");
+    printf("Experiment 23: Counter (CTR) Mode with S-DES\n");
+    printf("============================================================\n");
+
+    sdes_key_schedule(key, &k1, &k2);
+
+    printf("Key              : "); print_binary10(key); printf(" (0x%03X)\n", key);
+    printf("Initial Counter  : "); print_binary8(counter); printf("\n");
+
+    printf("\n--- CTR Encryption (C_i = P_i ^ E(K, Counter_i)) ---\n");
+    for (i = 0; i < 3; i++) {
+        uint8_t current_ctr = counter + i;
+        uint8_t keystream = sdes_encrypt_byte(current_ctr, k1, k2);
+        c[i] = p[i] ^ keystream;
+        printf("Block %d: Plaintext = ", i + 1); print_binary8(p[i]);
+        printf(", Counter = "); print_binary8(current_ctr);
+        printf(", Keystream = "); print_binary8(keystream);
+        printf(", Ciphertext = "); print_binary8(c[i]);
+        printf(" (Expected: "); print_binary8(expected[i]); printf(")\n");
+    }
+
+    printf("\n--- CTR Decryption (P_i = C_i ^ E(K, Counter_i)) ---\n");
+    for (i = 0; i < 3; i++) {
+        uint8_t current_ctr = counter + i;
+        uint8_t keystream = sdes_encrypt_byte(current_ctr, k1, k2);
+        d[i] = c[i] ^ keystream;
+        printf("Block %d: Decrypted = ", i + 1); print_binary8(d[i]);
+        printf(" (Matches original: %s)\n", (d[i] == p[i]) ? "YES" : "NO");
+    }
+
+    if (c[0] == expected[0] && c[1] == expected[1] && c[2] == expected[2]) {
+        printf("\nSUCCESS: S-DES CTR mode matches test data perfectly!\n");
+    } else {
+        printf("\nFAILURE: Outputs do not match test data!\n");
+    }
+    printf("============================================================\n");
+
+    return 0;
+}

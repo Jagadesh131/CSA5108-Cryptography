@@ -1,0 +1,137 @@
+/*
+ * ============================================================================
+ * Experiment 25: RSA Plaintext Block Sharing a Common Factor with n
+ * ============================================================================
+ * Question:
+ * 25. Write a C program for set of blocks encoded with the RSA algorithm and
+ *     we don’t have the private key. Assume n = pq, e is the public key.
+ *     Suppose also someone tells us they know one of the plaintext blocks has
+ *     a common factor with n. Does this help us in any way?
+ *
+ * THEORETICAL ANALYSIS & ANSWER:
+ * Yes, it completely breaks the RSA cryptosystem!
+ * Since n = p * q is the product of two distinct prime numbers, any integer M
+ * (where 1 < M < n) that shares a common factor with n MUST have:
+ *     gcd(M, n) = p  OR  gcd(M, n) = q
+ *
+ * Euclid's gcd algorithm runs in O(log n) time. Once gcd(M, n) is calculated:
+ * 1. One prime factor (say p) is immediately revealed!
+ * 2. The other prime factor is computed as q = n / p.
+ * 3. The totient phi(n) = (p - 1) * (q - 1) is determined.
+ * 4. The private key d = e^(-1) mod phi(n) is calculated via Extended Euclidean.
+ * 5. With d, the attacker can decrypt ALL blocks in the entire transmission!
+ * ============================================================================
+ */
+
+#include <stdio.h>
+
+long long gcd(long long a, long long b) {
+    while (b != 0) {
+        long long t = b;
+        b = a % b;
+        a = t;
+    }
+    return a;
+}
+
+long long extended_euclidean(long long a, long long b, long long *x, long long *y) {
+    if (b == 0) {
+        *x = 1;
+        *y = 0;
+        return a;
+    }
+    long long x1, y1;
+    long long g = extended_euclidean(b, a % b, &x1, &y1);
+    *x = y1;
+    *y = x1 - (a / b) * y1;
+    return g;
+}
+
+long long mod_inverse(long long a, long long m) {
+    long long x, y;
+    long long g = extended_euclidean(a, m, &x, &y);
+    if (g != 1) return -1;
+    return (x % m + m) % m;
+}
+
+long long mod_exp(long long base, long long exp, long long mod) {
+    long long res = 1;
+    base = base % mod;
+    while (exp > 0) {
+        if (exp % 2 == 1) res = (res * base) % mod;
+        base = (base * base) % mod;
+        exp /= 2;
+    }
+    return res;
+}
+
+int main() {
+    /* RSA Parameters */
+    long long p = 61, q = 53;
+    long long n = p * q; /* 3233 */
+    long long phi_n = (p - 1) * (q - 1); /* 3120 */
+    long long e = 17;
+    long long d = mod_inverse(e, phi_n);
+
+    /* Plaintext blocks sent */
+    long long plaintext_blocks[5] = { 65, 122, 183 /* 3 * 61 */, 45, 99 };
+    long long ciphertext_blocks[5];
+    int num_blocks = 5;
+    int i;
+
+    printf("============================================================\n");
+    printf("Experiment 25: RSA Vulnerability - Plaintext Sharing Factor with n\n");
+    printf("============================================================\n");
+    printf("Public Parameters: n = %lld, e = %lld\n", n, e);
+
+    /* Encryption */
+    for (i = 0; i < num_blocks; i++) {
+        ciphertext_blocks[i] = mod_exp(plaintext_blocks[i], e, n);
+    }
+
+    printf("\nCiphertext blocks transmitted:\n  ");
+    for (i = 0; i < num_blocks; i++) {
+        printf("C[%d]=%lld  ", i, ciphertext_blocks[i]);
+    }
+    printf("\n");
+
+    /* Attacker scenario:
+     * Attacker does NOT know private key d.
+     * Attacker is told that block index 2 (M[2]) shares a factor with n.
+     */
+    printf("\n--- Attacker Analysis ---\n");
+    printf("Attacker knows block M[2] = %lld has a common factor with n = %lld.\n",
+           plaintext_blocks[2], n);
+
+    long long factor = gcd(plaintext_blocks[2], n);
+    printf("Computing gcd(M[2], n) = gcd(%lld, %lld) = %lld\n",
+           plaintext_blocks[2], n, factor);
+
+    if (factor > 1 && factor < n) {
+        long long recovered_p = factor;
+        long long recovered_q = n / recovered_p;
+        long long recovered_phi = (recovered_p - 1) * (recovered_q - 1);
+        long long recovered_d = mod_inverse(e, recovered_phi);
+
+        printf("\nCRITICAL SYSTEM COMPROMISE:\n");
+        printf("  1. Revealed prime factor p = %lld\n", recovered_p);
+        printf("  2. Revealed prime factor q = %lld\n", recovered_q);
+        printf("  3. Computed phi(n) = %lld\n", recovered_phi);
+        printf("  4. Recovered Private Key d = %lld (Actual d = %lld)\n", recovered_d, d);
+
+        printf("\nAttacker now decrypts ALL ciphertext blocks:\n");
+        for (i = 0; i < num_blocks; i++) {
+            long long dec = mod_exp(ciphertext_blocks[i], recovered_d, n);
+            printf("  Block %d: Ciphertext %lld -> Decrypted %lld (Original %lld)\n",
+                   i, ciphertext_blocks[i], dec, plaintext_blocks[i]);
+        }
+    }
+
+    printf("\nCONCLUSION:\n");
+    printf("Knowing that a plaintext block shares a factor with n is CATASTROPHIC.\n");
+    printf("It allows instant factorization of n via Euclid's algorithm, revealing\n");
+    printf("the private key d and completely breaking the entire RSA cryptosystem.\n");
+    printf("============================================================\n");
+
+    return 0;
+}

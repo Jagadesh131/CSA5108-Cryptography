@@ -1,0 +1,159 @@
+/*
+ * ============================================================================
+ * Experiment 26: RSA Security - Reusing Modulus n After Leaking Private Key
+ * ============================================================================
+ * Question:
+ * 26. Write a C program for RSA public-key encryption scheme, each user has a
+ *     public key, e, and a private key, d. Suppose Bob leaks his private key.
+ *     Rather than generating a new modulus, he decides to generate a new
+ *     public and a new private key. Is this safe?
+ *
+ * THEORETICAL ANALYSIS & ANSWER:
+ * Is this safe? NO, IT IS COMPLETELY INSECURE!
+ * When Bob leaks his private key d1 (with known public key e1 and modulus n):
+ * 1. Anyone knowing (e1, d1, n) can easily factor n into its prime factors p and q.
+ *    Since e1 * d1 - 1 is a multiple of phi(n), n can be factored in polynomial
+ *    time using probabilistic randomized square-root algorithms or simple search.
+ * 2. Once p and q are discovered, phi(n) = (p - 1) * (q - 1) is permanently known.
+ * 3. Even if Bob chooses a brand new public key e2 and private key d2 using the
+ *    SAME modulus n, any adversary can immediately calculate:
+ *         d2 = e2^(-1) mod phi(n)
+ * 4. Bob MUST generate a brand new modulus n_new = p_new * q_new!
+ * ============================================================================
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+
+long long gcd(long long a, long long b) {
+    while (b != 0) {
+        long long t = b;
+        b = a % b;
+        a = t;
+    }
+    return a;
+}
+
+long long extended_euclidean(long long a, long long b, long long *x, long long *y) {
+    if (b == 0) {
+        *x = 1;
+        *y = 0;
+        return a;
+    }
+    long long x1, y1;
+    long long g = extended_euclidean(b, a % b, &x1, &y1);
+    *x = y1;
+    *y = x1 - (a / b) * y1;
+    return g;
+}
+
+long long mod_inverse(long long a, long long m) {
+    long long x, y;
+    long long g = extended_euclidean(a, m, &x, &y);
+    if (g != 1) return -1;
+    return (x % m + m) % m;
+}
+
+long long mod_exp(long long base, long long exp, long long mod) {
+    long long res = 1;
+    base = base % mod;
+    while (exp > 0) {
+        if (exp % 2 == 1) res = (res * base) % mod;
+        base = (base * base) % mod;
+        exp /= 2;
+    }
+    return res;
+}
+
+/* Factor n using knowledge of e and d */
+int factor_with_ed(long long n, long long e, long long d, long long *p, long long *q) {
+    long long k = e * d - 1;
+    if (k % 2 != 0) return 0;
+
+    /* Write k = 2^s * t with t odd */
+    long long t = k;
+    while (t % 2 == 0) t /= 2;
+
+    long long a;
+    for (a = 2; a < 100; a++) {
+        long long g = gcd(a, n);
+        if (g > 1 && g < n) {
+            *p = g;
+            *q = n / g;
+            return 1;
+        }
+
+        long long cur = mod_exp(a, t, n);
+        while (cur != 1 && cur != n - 1) {
+            long long nxt = (cur * cur) % n;
+            if (nxt == 1) {
+                g = gcd(cur - 1, n);
+                if (g > 1 && g < n) {
+                    *p = g;
+                    *q = n / g;
+                    return 1;
+                }
+            }
+            cur = nxt;
+        }
+    }
+    return 0;
+}
+
+int main() {
+    long long p = 59, q = 61;
+    long long n = p * q; /* 3599 */
+    long long phi_n = (p - 1) * (q - 1); /* 3480 */
+
+    /* Old key pair 1 */
+    long long e1 = 31;
+    long long d1 = mod_inverse(e1, phi_n); /* 3031 */
+
+    /* Bob leaks d1! He naively picks new key pair 2 with SAME modulus n */
+    long long e2 = 79;
+    long long d2 = mod_inverse(e2, phi_n); /* 1039 */
+
+    printf("============================================================\n");
+    printf("Experiment 26: RSA Modulus Reuse Vulnerability\n");
+    printf("============================================================\n");
+    printf("Question: Is reusing modulus n after leaking private key d safe?\n");
+    printf("Answer  : NO, IT IS COMPLETELY INSECURE!\n\n");
+
+    printf("Bob's Modulus n        : %lld\n", n);
+    printf("Leaked Old Key Pair    : (e1 = %lld, d1 = %lld)\n", e1, d1);
+    printf("Bob's New Public Key   : e2 = %lld (same modulus n = %lld)\n", e2, n);
+    printf("Bob's Secret New d2    : %lld (Bob believes this is secret!)\n", d2);
+
+    /* Attacker uses leaked (e1, d1, n) to factor n */
+    printf("\n--- Attacker Computes Factors of n using (e1, d1) ---\n");
+    long long rec_p = 0, rec_q = 0;
+    if (factor_with_ed(n, e1, d1, &rec_p, &rec_q)) {
+        printf("  Successfully factored n!\n");
+        printf("  Recovered p = %lld, q = %lld\n", rec_p, rec_q);
+
+        long long rec_phi = (rec_p - 1) * (rec_q - 1);
+        printf("  Computed phi(n) = %lld\n", rec_phi);
+
+        /* Attacker calculates Bob's NEW private key d2! */
+        long long cracked_d2 = mod_inverse(e2, rec_phi);
+        printf("  Calculated Bob's NEW Private Key d2 = %lld\n", cracked_d2);
+
+        /* Demonstration: Decrypting a secret message sent to Bob */
+        long long secret_msg = 2026;
+        long long encrypted = mod_exp(secret_msg, e2, n);
+        long long cracked_msg = mod_exp(encrypted, cracked_d2, n);
+
+        printf("\n--- Verification Attack on Intercepted Message ---\n");
+        printf("  Original Secret Message           : %lld\n", secret_msg);
+        printf("  Encrypted with Bob's new key (e2) : %lld\n", encrypted);
+        printf("  Decrypted by Eve using cracked d2 : %lld\n", cracked_msg);
+        printf("  Attack Result                     : %s\n",
+               (secret_msg == cracked_msg) ? "EXPLOIT SUCCESSFUL" : "FAILED");
+    }
+
+    printf("\nRULE: If an RSA private key is compromised, a NEW MODULUS\n");
+    printf("must be generated with completely fresh prime factors p and q!\n");
+    printf("============================================================\n");
+
+    return 0;
+}

@@ -1,0 +1,199 @@
+/*
+ * ============================================================================
+ * Experiment 29: SHA-3 (Keccak) State Matrix Diffusion Analysis
+ * ============================================================================
+ * Question:
+ * 29. Write a C program for SHA-3 option with a block size of 1024 bits and
+ *     assume that each of the lanes in the first message block (P0) has at
+ *     least one nonzero bit. To start, all of the lanes in the internal state
+ *     matrix that correspond to the capacity portion of the initial state are
+ *     all zeros. Show how long it will take before all of these lanes have at
+ *     least one nonzero bit. Note: Ignore the permutation. That is, keep track
+ *     of the original zero lanes even after they have changed position in the
+ *     matrix.
+ *
+ * THEORETICAL ANALYSIS & ANSWER:
+ * In SHA-3 (Keccak-f[1600]):
+ * - State consists of 5x5 = 25 lanes of 64 bits each (total 1600 bits).
+ * - Block size (rate r) = 1024 bits -> 16 lanes (1024 / 64 = 16).
+ * - Capacity c = 576 bits -> 9 lanes (576 / 64 = 9).
+ * - Initial state:
+ *   16 rate lanes are non-zero (from P0).
+ *   9 capacity lanes are all ZERO.
+ *
+ * In Round 1, Step Theta (Column Parity Mixing):
+ *   C[x] = A[x,0] ^ A[x,1] ^ A[x,2] ^ A[x,3] ^ A[x,4]
+ *   D[x] = C[(x+4)%5] ^ ROT(C[(x+1)%5], 1)
+ *   A'[x,y] = A[x,y] ^ D[x]
+ *
+ * Because non-zero lanes are present across all columns:
+ * - Every parity word D[x] is non-zero.
+ * - For any zero capacity lane where A[x,y] = 0:
+ *   A'[x,y] = 0 ^ D[x] = D[x] != 0!
+ *
+ * Conclusion: It takes EXACTLY 1 ROUND for ALL capacity lanes to become non-zero!
+ * ============================================================================
+ */
+
+#include <stdio.h>
+#include <stdint.h>
+#include <stdbool.h>
+
+#define ROTL64(x, y) (((x) << (y)) | ((x) >> (64 - (y))))
+
+/* 5x5 Keccak State Matrix */
+typedef struct {
+    uint64_t lane[5][5];
+} KeccakState;
+
+/* Rotation offsets for Rho */
+static const int RHO_OFFSETS[5][5] = {
+    {  0, 36,  3, 41, 18 },
+    {  1, 44, 10, 45,  2 },
+    { 62,  6, 43, 15, 61 },
+    { 28, 55, 25, 21, 56 },
+    { 27, 20, 39,  8, 14 }
+};
+
+/* Round constants for Iota */
+static const uint64_t RC[24] = {
+    0x0000000000000001ULL, 0x0000000000008082ULL, 0x800000000000808aULL,
+    0x8000000080008000ULL, 0x000000000000808bULL, 0x0000000080000001ULL
+};
+
+/* Keccak Round Step Theta */
+void step_theta(KeccakState *st) {
+    uint64_t C[5], D[5];
+    int x, y;
+
+    for (x = 0; x < 5; x++) {
+        C[x] = st->lane[x][0] ^ st->lane[x][1] ^ st->lane[x][2] ^ st->lane[x][3] ^ st->lane[x][4];
+    }
+    for (x = 0; x < 5; x++) {
+        D[x] = C[(x + 4) % 5] ^ ROTL64(C[(x + 1) % 5], 1);
+    }
+    for (x = 0; x < 5; x++) {
+        for (y = 0; y < 5; y++) {
+            st->lane[x][y] ^= D[x];
+        }
+    }
+}
+
+/* Keccak Round Step Rho & Pi */
+void step_rho_pi(KeccakState *st) {
+    KeccakState temp;
+    int x, y;
+
+    for (x = 0; x < 5; x++) {
+        for (y = 0; y < 5; y++) {
+            temp.lane[y][(2 * x + 3 * y) % 5] = ROTL64(st->lane[x][y], RHO_OFFSETS[x][y]);
+        }
+    }
+    *st = temp;
+}
+
+/* Keccak Round Step Chi */
+void step_chi(KeccakState *st) {
+    KeccakState temp;
+    int x, y;
+
+    for (x = 0; x < 5; x++) {
+        for (y = 0; y < 5; y++) {
+            temp.lane[x][y] = st->lane[x][y] ^ ((~st->lane[(x + 1) % 5][y]) & st->lane[(x + 2) % 5][y]);
+        }
+    }
+    *st = temp;
+}
+
+/* Keccak Round Step Iota */
+void step_iota(KeccakState *st, int round) {
+    st->lane[0][0] ^= RC[round];
+}
+
+void keccak_round(KeccakState *st, int round) {
+    step_theta(st);
+    step_rho_pi(st);
+    step_chi(st);
+    step_iota(st, round);
+}
+
+int count_zero_lanes(const KeccakState *st) {
+    int count = 0;
+    int x, y;
+    for (y = 0; y < 5; y++) {
+        for (x = 0; x < 5; x++) {
+            if (st->lane[x][y] == 0) count++;
+        }
+    }
+    return count;
+}
+
+void print_state_matrix(const KeccakState *st) {
+    int x, y;
+    for (y = 0; y < 5; y++) {
+        printf("  Row %d: ", y);
+        for (x = 0; x < 5; x++) {
+            if (st->lane[x][y] == 0) {
+                printf("[ ZERO ] ");
+            } else {
+                printf("[NON-0 ] ");
+            }
+        }
+        printf("\n");
+    }
+}
+
+int main() {
+    KeccakState state;
+    int x, y, idx = 0;
+    int round = 0;
+
+    printf("============================================================\n");
+    printf("Experiment 29: SHA-3 Initial State Capacity Lane Diffusion\n");
+    printf("============================================================\n");
+    printf("Parameters:\n");
+    printf("  State Size : 1600 bits (25 lanes of 64 bits)\n");
+    printf("  Block Size (Rate r) : 1024 bits (16 lanes)\n");
+    printf("  Capacity c          : 576 bits (9 lanes)\n\n");
+
+    /* Initialize: 16 rate lanes non-zero, 9 capacity lanes zero */
+    for (y = 0; y < 5; y++) {
+        for (x = 0; x < 5; x++) {
+            if (idx < 16) {
+                /* Non-zero lane from first message block P0 */
+                state.lane[x][y] = 0xA5A5A5A500000001ULL + idx;
+            } else {
+                /* Capacity lane starts at zero */
+                state.lane[x][y] = 0ULL;
+            }
+            idx++;
+        }
+    }
+
+    printf("--- Initial State Matrix (Before Round 1) ---\n");
+    print_state_matrix(&state);
+    printf("Zero Lanes remaining: %d / 25 (all 9 capacity lanes)\n\n", count_zero_lanes(&state));
+
+    /* Execute Round 1 */
+    printf("Executing Keccak Round 1...\n");
+    keccak_round(&state, round++);
+
+    printf("\n--- State Matrix After Round 1 ---\n");
+    print_state_matrix(&state);
+    int zeros_after_r1 = count_zero_lanes(&state);
+    printf("Zero Lanes remaining: %d / 25\n", zeros_after_r1);
+
+    printf("\n============================================================\n");
+    printf("RESULT & ANSWER:\n");
+    printf("  It takes EXACTLY 1 ROUND for all 9 zero capacity lanes to\n");
+    printf("  have at least one non-zero bit!\n\n");
+    printf("Explanation:\n");
+    printf("  In the very first step (Theta) of Round 1, column parity D[x]\n");
+    printf("  is computed across all 5 columns. Since each column has\n");
+    printf("  non-zero rate lanes, D[x] is non-zero. When D[x] is XORed\n");
+    printf("  into the zero lanes (0 ^ D[x] = D[x]), all capacity lanes\n");
+    printf("  immediately acquire non-zero values within a single round.\n");
+    printf("============================================================\n");
+
+    return 0;
+}
