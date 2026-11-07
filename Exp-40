@@ -1,0 +1,155 @@
+/*
+ * ============================================================================
+ * Experiment 40: Automated Monoalphabetic Cipher Frequency Attack
+ * ============================================================================
+ * Question:
+ * 40. Write a C program that can perform a letter frequency attack on any
+ *     monoalphabetic substitution cipher without human intervention. Your
+ *     software should produce possible plaintexts in rough order of likelihood.
+ *     It would be good if your user interface allowed the user to specify
+ *     "give me the top 10 possible plaintexts."
+ * ============================================================================
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+
+#define MAX_TEXT 2048
+
+static const double ENGLISH_FREQ[26] = {
+    8.167, 1.492, 2.782, 4.253, 12.702, 2.228,
+    2.015, 6.094, 6.966, 0.153, 0.772,  4.025,
+    2.406, 6.749, 7.507, 1.929, 0.095,  5.987,
+    6.327, 9.056, 2.758, 0.978, 2.360,  0.150,
+    1.974, 0.074
+};
+
+static const char ENG_ORDER[] = "ETAOINSHRDLCUMWFGYPBVKJXQZ";
+
+typedef struct {
+    char cipher_char;
+    int count;
+} LetterCount;
+
+typedef struct {
+    char text[MAX_TEXT];
+    double score;
+} ScoredText;
+
+int cmp_count(const void *a, const void *b) {
+    const LetterCount *x = (const LetterCount *)a;
+    const LetterCount *y = (const LetterCount *)b;
+    return y->count - x->count;
+}
+
+int cmp_score(const void *a, const void *b) {
+    const ScoredText *x = (const ScoredText *)a;
+    const ScoredText *y = (const ScoredText *)b;
+    if (x->score < y->score) return -1;
+    if (x->score > y->score) return 1;
+    return 0;
+}
+
+double eval_score(const char *txt) {
+    int counts[26] = {0};
+    int total = 0;
+    int i;
+    double chi = 0.0;
+
+    for (i = 0; txt[i] != '\0'; i++) {
+        if (isalpha((unsigned char)txt[i])) {
+            counts[toupper((unsigned char)txt[i]) - 'A']++;
+            total++;
+        }
+    }
+    if (total == 0) return 99999.0;
+
+    for (i = 0; i < 26; i++) {
+        double exp_c = total * (ENGLISH_FREQ[i] / 100.0);
+        if (exp_c > 0.0) {
+            double diff = counts[i] - exp_c;
+            chi += (diff * diff) / exp_c;
+        }
+    }
+    return chi;
+}
+
+int main() {
+    char ciphertext[MAX_TEXT];
+    int top_n = 10;
+    LetterCount counts[26];
+    char key_map[26];
+    ScoredText candidates[50];
+    int num_candidates = 0;
+    int i, j, offset;
+
+    printf("============================================================\n");
+    printf("Experiment 40: Automated Monoalphabetic Cipher Frequency Attack\n");
+    printf("============================================================\n");
+
+    const char *sample =
+        "WKH FRPSXWHU VFLHQFH GHSDUWPHQW FRQGXFWV UHVHDUFK LQ FUBSWRJUDSKB "
+        "DQG LQIRUPDWLRQ VHFXULWB WR SURWHFW QHWZRUN VBVWHPV";
+
+    printf("Enter ciphertext (or press Enter for default sample):\n");
+    if (fgets(ciphertext, sizeof(ciphertext), stdin)) {
+        int len = strlen(ciphertext);
+        if (len > 0 && ciphertext[len - 1] == '\n') {
+            ciphertext[len - 1] = '\0';
+        }
+    }
+    if (strlen(ciphertext) == 0) {
+        strcpy(ciphertext, sample);
+        printf("Using default sample ciphertext:\n%s\n", ciphertext);
+    }
+
+    printf("\nHow many top candidate plaintexts to display (e.g. 10)? ");
+    if (scanf("%d", &top_n) != 1 || top_n < 1) top_n = 10;
+    if (top_n > 50) top_n = 50;
+
+    for (i = 0; i < 26; i++) {
+        counts[i].cipher_char = 'A' + i;
+        counts[i].count = 0;
+    }
+    for (i = 0; ciphertext[i] != '\0'; i++) {
+        if (isalpha((unsigned char)ciphertext[i])) {
+            counts[toupper((unsigned char)ciphertext[i]) - 'A'].count++;
+        }
+    }
+
+    qsort(counts, 26, sizeof(LetterCount), cmp_count);
+
+    /* Generate hypotheses by shifting frequency alignments */
+    for (offset = 0; offset < 26 && num_candidates < 40; offset++) {
+        for (i = 0; i < 26; i++) {
+            key_map[counts[i].cipher_char - 'A'] = ENG_ORDER[(i + offset) % 26];
+        }
+
+        for (j = 0; ciphertext[j] != '\0'; j++) {
+            if (isalpha((unsigned char)ciphertext[j])) {
+                char m = key_map[toupper((unsigned char)ciphertext[j]) - 'A'];
+                candidates[num_candidates].text[j] = isupper((unsigned char)ciphertext[j]) ? m : tolower(m);
+            } else {
+                candidates[num_candidates].text[j] = ciphertext[j];
+            }
+        }
+        candidates[num_candidates].text[j] = '\0';
+        candidates[num_candidates].score = eval_score(candidates[num_candidates].text);
+        num_candidates++;
+    }
+
+    qsort(candidates, num_candidates, sizeof(ScoredText), cmp_score);
+
+    printf("\n============================================================\n");
+    printf("TOP %d MOST LIKELY PLAINTEXTS (Rough Order of Likelihood):\n", top_n);
+    printf("============================================================\n");
+    for (i = 0; i < top_n && i < num_candidates; i++) {
+        printf("[Candidate %2d | Chi-Sq Score: %7.2f]\n%s\n\n",
+               i + 1, candidates[i].score, candidates[i].text);
+    }
+    printf("============================================================\n");
+
+    return 0;
+}

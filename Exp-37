@@ -1,0 +1,161 @@
+/*
+ * ============================================================================
+ * Experiment 37: Automated Letter Frequency Attack on Monoalphabetic Cipher
+ * ============================================================================
+ * Question:
+ * 37. Write a C program that can perform a letter frequency attack on any
+ *     monoalphabetic substitution cipher without human intervention. Your
+ *     software should produce possible plaintexts in rough order of likelihood.
+ *     It would be good if your user interface allowed the user to specify
+ *     "give me the top 10 possible plaintexts."
+ * ============================================================================
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+
+#define MAX_TEXT 2048
+
+/* Standard English Letter Frequencies (%) */
+static const double ENGLISH_FREQ[26] = {
+    8.167, 1.492, 2.782, 4.253, 12.702, 2.228,
+    2.015, 6.094, 6.966, 0.153, 0.772,  4.025,
+    2.406, 6.749, 7.507, 1.929, 0.095,  5.987,
+    6.327, 9.056, 2.758, 0.978, 2.360,  0.150,
+    1.974, 0.074
+};
+
+/* English letters ranked by typical frequency */
+static const char ENG_RANK[] = "ETAOINSHRDLCUMWFGYPBVKJXQZ";
+
+typedef struct {
+    char letter;
+    int count;
+} FreqPair;
+
+typedef struct {
+    char plaintext[MAX_TEXT];
+    double score;
+} Candidate;
+
+int compare_freq(const void *a, const void *b) {
+    const FreqPair *fa = (const FreqPair *)a;
+    const FreqPair *fb = (const FreqPair *)b;
+    return fb->count - fa->count;
+}
+
+int compare_candidate(const void *a, const void *b) {
+    const Candidate *ca = (const Candidate *)a;
+    const Candidate *cb = (const Candidate *)b;
+    if (ca->score < cb->score) return -1;
+    if (ca->score > cb->score) return 1;
+    return 0;
+}
+
+/* Calculate Chi-Squared goodness-of-fit to English */
+double calculate_chi_square(const char *text) {
+    int counts[26] = {0};
+    int total = 0;
+    int i;
+    double chi = 0.0;
+
+    for (i = 0; text[i] != '\0'; i++) {
+        if (isalpha((unsigned char)text[i])) {
+            counts[toupper((unsigned char)text[i]) - 'A']++;
+            total++;
+        }
+    }
+    if (total == 0) return 99999.0;
+
+    for (i = 0; i < 26; i++) {
+        double expected = total * (ENGLISH_FREQ[i] / 100.0);
+        if (expected > 0.0) {
+            double diff = counts[i] - expected;
+            chi += (diff * diff) / expected;
+        }
+    }
+    return chi;
+}
+
+int main() {
+    char ciphertext[MAX_TEXT];
+    int top_n = 10;
+    FreqPair freq[26];
+    char mapping[26];
+    Candidate candidates[100];
+    int num_candidates = 0;
+    int i, j, variant;
+
+    printf("============================================================\n");
+    printf("Experiment 37: Frequency Attack on Monoalphabetic Cipher\n");
+    printf("============================================================\n");
+
+    const char *sample_cipher =
+        "WKH TXLFN EURZQ IRA MXPSV RYHU WKH ODCB GRJ DQG UXQV DZDB WR "
+        "FHOHEUDWH WKH QHZ FRGLQJ HASHULPHQW LQ FUBSWRJUDSKB ODE";
+
+    printf("Enter ciphertext (or press Enter to use default sample):\n");
+    if (fgets(ciphertext, sizeof(ciphertext), stdin)) {
+        int len = strlen(ciphertext);
+        if (len > 0 && ciphertext[len - 1] == '\n') {
+            ciphertext[len - 1] = '\0';
+        }
+    }
+    if (strlen(ciphertext) == 0) {
+        strcpy(ciphertext, sample_cipher);
+        printf("Using default ciphertext:\n%s\n", ciphertext);
+    }
+
+    printf("\nHow many top candidates to display (e.g. 10)? ");
+    if (scanf("%d", &top_n) != 1 || top_n < 1) top_n = 10;
+    if (top_n > 50) top_n = 50;
+
+    /* Count letter frequencies in ciphertext */
+    for (i = 0; i < 26; i++) {
+        freq[i].letter = 'A' + i;
+        freq[i].count = 0;
+    }
+    for (i = 0; ciphertext[i] != '\0'; i++) {
+        if (isalpha((unsigned char)ciphertext[i])) {
+            freq[toupper((unsigned char)ciphertext[i]) - 'A'].count++;
+        }
+    }
+
+    qsort(freq, 26, sizeof(FreqPair), compare_freq);
+
+    /* Generate multiple candidate permutation hypotheses */
+    for (variant = 0; variant < 26 && num_candidates < 50; variant++) {
+        for (i = 0; i < 26; i++) {
+            mapping[freq[i].letter - 'A'] = ENG_RANK[(i + variant) % 26];
+        }
+
+        for (j = 0; ciphertext[j] != '\0'; j++) {
+            if (isalpha((unsigned char)ciphertext[j])) {
+                char mapped = mapping[toupper((unsigned char)ciphertext[j]) - 'A'];
+                candidates[num_candidates].plaintext[j] = isupper((unsigned char)ciphertext[j])
+                    ? mapped : tolower(mapped);
+            } else {
+                candidates[num_candidates].plaintext[j] = ciphertext[j];
+            }
+        }
+        candidates[num_candidates].plaintext[j] = '\0';
+        candidates[num_candidates].score = calculate_chi_square(candidates[num_candidates].plaintext);
+        num_candidates++;
+    }
+
+    /* Sort candidates by chi-square score ascending (best match first) */
+    qsort(candidates, num_candidates, sizeof(Candidate), compare_candidate);
+
+    printf("\n============================================================\n");
+    printf("TOP %d MOST LIKELY PLAINTEXT CANDIDATES:\n", top_n);
+    printf("============================================================\n");
+    for (i = 0; i < top_n && i < num_candidates; i++) {
+        printf("[Rank %2d | Chi-Sq Score: %7.2f]\n%s\n\n",
+               i + 1, candidates[i].score, candidates[i].plaintext);
+    }
+    printf("============================================================\n");
+
+    return 0;
+}

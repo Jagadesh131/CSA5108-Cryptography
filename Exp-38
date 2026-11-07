@@ -1,0 +1,129 @@
+/*
+ * ============================================================================
+ * Experiment 38: Known Plaintext and Chosen Plaintext Attacks on Hill Cipher
+ * ============================================================================
+ * Question:
+ * 38. Write a C program for Hill cipher succumbs to a known plaintext attack
+ *     if sufficient plaintext-ciphertext pairs are provided. It is even easier
+ *     to solve the Hill cipher if a chosen plaintext attack can be mounted.
+ *     Implement in C programming.
+ * ============================================================================
+ */
+
+#include <stdio.h>
+
+int gcd(int a, int b) {
+    while (b != 0) {
+        int t = b;
+        b = a % b;
+        a = t;
+    }
+    return a;
+}
+
+int mod_inverse(int a, int m) {
+    int x;
+    a = (a % m + m) % m;
+    for (x = 1; x < m; x++) {
+        if ((a * x) % m == 1) return x;
+    }
+    return -1;
+}
+
+int mat_det(int M[2][2]) {
+    int d = (M[0][0] * M[1][1] - M[0][1] * M[1][0]) % 26;
+    return (d + 26) % 26;
+}
+
+int mat_inv(int M[2][2], int inv[2][2]) {
+    int det = mat_det(M);
+    int inv_det = mod_inverse(det, 26);
+    int i, j;
+
+    if (inv_det == -1) return 0; /* Not invertible mod 26 */
+
+    inv[0][0] = ( inv_det * M[1][1]) % 26;
+    inv[0][1] = (-inv_det * M[0][1]) % 26;
+    inv[1][0] = (-inv_det * M[1][0]) % 26;
+    inv[1][1] = ( inv_det * M[0][0]) % 26;
+
+    for (i = 0; i < 2; i++) {
+        for (j = 0; j < 2; j++) {
+            inv[i][j] = (inv[i][j] % 26 + 26) % 26;
+        }
+    }
+    return 1;
+}
+
+void mat_mul(int A[2][2], int B[2][2], int R[2][2]) {
+    int i, j;
+    for (i = 0; i < 2; i++) {
+        for (j = 0; j < 2; j++) {
+            R[i][j] = (A[i][0] * B[0][j] + A[i][1] * B[1][j]) % 26;
+            R[i][j] = (R[i][j] + 26) % 26;
+        }
+    }
+}
+
+void print_matrix(const char *name, int M[2][2]) {
+    printf("%s:\n", name);
+    printf("  [ %2d  %2d ]\n", M[0][0], M[0][1]);
+    printf("  [ %2d  %2d ]\n", M[1][0], M[1][1]);
+}
+
+int main() {
+    int K[2][2] = {
+        { 9, 4 },
+        { 5, 7 }
+    };
+    int P[2][2] = {
+        { 5, 17 },
+        { 8,  3 }
+    };
+    int C[2][2];
+    int P_inv[2][2];
+    int P_chosen[2][2] = {
+        { 1, 0 },
+        { 0, 1 }
+    };
+    int C_chosen[2][2];
+
+    printf("============================================================\n");
+    printf("Experiment 38: Cryptanalysis of Hill Cipher (KPA and CPA)\n");
+    printf("============================================================\n");
+    print_matrix("Target Secret Key Matrix K", K);
+
+    /* --- 1. Known Plaintext Attack (KPA) --- */
+    printf("\n--- 1. Known Plaintext Attack (KPA) ---\n");
+    mat_mul(P, K, C); /* Ciphertext C = P * K mod 26 */
+
+    print_matrix("Known Plaintext Matrix P", P);
+    print_matrix("Corresponding Ciphertext Matrix C", C);
+
+    if (mat_inv(P, P_inv)) {
+        int K_recovered[2][2];
+        mat_mul(P_inv, C, K_recovered);
+        print_matrix("Inverse of Plaintext Matrix P^(-1)", P_inv);
+        print_matrix("Recovered Key Matrix K = P^(-1) * C mod 26", K_recovered);
+
+        if (K_recovered[0][0] == K[0][0] && K_recovered[0][1] == K[0][1] &&
+            K_recovered[1][0] == K[1][0] && K_recovered[1][1] == K[1][1]) {
+            printf("KPA SUCCESS: Key matrix completely recovered!\n");
+        }
+    }
+
+    /* --- 2. Chosen Plaintext Attack (CPA) --- */
+    printf("\n--- 2. Chosen Plaintext Attack (CPA) ---\n");
+    printf("Attacker chooses identity basis: P1 = (1, 0), P2 = (0, 1)\n");
+    mat_mul(P_chosen, K, C_chosen);
+
+    print_matrix("Chosen Plaintext Matrix (Identity I)", P_chosen);
+    print_matrix("Resulting Intercepted Ciphertext C = I * K", C_chosen);
+
+    printf("Notice: C directly equals K! Zero math or matrix inversion needed!\n");
+    printf("Recovered Key Matrix via CPA:\n");
+    print_matrix("CPA Recovered Key K", C_chosen);
+
+    printf("============================================================\n");
+    return 0;
+}

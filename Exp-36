@@ -1,0 +1,145 @@
+/*
+ * ============================================================================
+ * Experiment 36: Affine Caesar Cipher and One-to-One Condition
+ * ============================================================================
+ * Question:
+ * 36. Write a C program for Caesar cipher, known as the affine Caesar cipher,
+ *     has the following form: For each plaintext letter p, substitute the
+ *     ciphertext letter C: C = E([a, b], p) = (ap + b) mod 26.
+ *     A basic requirement of any encryption algorithm is that it be one-to-one.
+ *     That is, if p != q, then E(k, p) != E(k, q). Otherwise, decryption is
+ *     impossible, because more than one plaintext character maps into the same
+ *     ciphertext character. The affine Caesar cipher is not one-to-one for all
+ *     values of a. For example, for a = 2 and b = 3, then
+ *     E([a, b], 0) = E([a, b], 13) = 3.
+ *
+ * THEORETICAL ANALYSIS:
+ * 1. Condition for One-to-One (Invertibility):
+ *    For C = (a*p + b) mod 26 to be one-to-one (bijective), the multiplier 'a'
+ *    MUST be coprime to 26:
+ *        gcd(a, 26) = 1
+ *
+ * 2. Why gcd(a, 26) > 1 fails:
+ *    Let g = gcd(a, 26) > 1. Then (26 / g) is an integer strictly less than 26.
+ *    For p1 = 0 and p2 = 26 / g:
+ *        a * p2 = a * (26 / g) = (a / g) * 26 = 0 mod 26
+ *        E([a, b], p2) = (a * p2 + b) mod 26 = b = E([a, b], 0)
+ *    Hence, multiple distinct plaintext characters map to the same ciphertext
+ *    character, destroying invertibility!
+ *
+ * 3. Permissible Values of 'a':
+ *    Out of 26 possible values (0 to 25), exactly 12 values are coprime to 26:
+ *        a in {1, 3, 5, 7, 9, 11, 15, 17, 19, 21, 23, 25}
+ *    For each valid 'a', there exists a unique modular inverse a^(-1) mod 26,
+ *    allowing unambiguous decryption:
+ *        p = a^(-1) * (C - b) mod 26
+ * ============================================================================
+ */
+
+#include <stdio.h>
+#include <ctype.h>
+#include <string.h>
+
+int gcd(int a, int b) {
+    while (b != 0) {
+        int t = b;
+        b = a % b;
+        a = t;
+    }
+    return a;
+}
+
+int mod_inverse(int a, int m) {
+    int x;
+    a = (a % m + m) % m;
+    for (x = 1; x < m; x++) {
+        if ((a * x) % m == 1) return x;
+    }
+    return -1;
+}
+
+int affine_encrypt_char(char p, int a, int b) {
+    if (isalpha((unsigned char)p)) {
+        char base = isupper((unsigned char)p) ? 'A' : 'a';
+        int p_val = p - base;
+        int c_val = (a * p_val + b) % 26;
+        return base + c_val;
+    }
+    return p;
+}
+
+int affine_decrypt_char(char c, int a_inv, int b) {
+    if (isalpha((unsigned char)c)) {
+        char base = isupper((unsigned char)c) ? 'A' : 'a';
+        int c_val = c - base;
+        int p_val = (a_inv * (c_val - b + 26)) % 26;
+        return base + p_val;
+    }
+    return c;
+}
+
+int main() {
+    printf("============================================================\n");
+    printf("Experiment 36: Affine Caesar Cipher and One-to-One Analysis\n");
+    printf("============================================================\n");
+
+    /* Part 1: Demonstrate Failure of Invalid 'a' */
+    printf("\n[Part 1] Demonstration of Collision for Invalid a = 2, b = 3:\n");
+    int a_invalid = 2, b_invalid = 3;
+    int p1 = 0;  /* 'A' */
+    int p2 = 13; /* 'N' */
+    int c1 = (a_invalid * p1 + b_invalid) % 26;
+    int c2 = (a_invalid * p2 + b_invalid) % 26;
+
+    printf("  gcd(a, 26) = gcd(%d, 26) = %d != 1 (NOT COPRIME)\n",
+           a_invalid, gcd(a_invalid, 26));
+    printf("  Plaintext p1 = %2d ('%c') -> Ciphertext C1 = %2d ('%c')\n",
+           p1, 'A' + p1, c1, 'A' + c1);
+    printf("  Plaintext p2 = %2d ('%c') -> Ciphertext C2 = %2d ('%c')\n",
+           p2, 'A' + p2, c2, 'A' + c2);
+    printf("  COLLISION DETECTED: E([%d, %d], 0) = E([%d, %d], 13) = %d ('%c')\n",
+           a_invalid, b_invalid, a_invalid, b_invalid, c1, 'A' + c1);
+    printf("  Decryption is IMPOSSIBLE because 'D' could be either 'A' or 'N'!\n");
+
+    /* Part 2: List All Valid Values of 'a' */
+    printf("\n[Part 2] Permissible Values of 'a' (such that gcd(a, 26) == 1):\n");
+    printf("  %-6s %-16s %-16s\n", "Value", "gcd(a, 26)", "Inverse a^(-1)");
+    printf("  ---------------------------------------\n");
+    int count = 0;
+    int a;
+    for (a = 1; a < 26; a++) {
+        if (gcd(a, 26) == 1) {
+            count++;
+            printf("  a = %-2d  gcd(%2d, 26) = 1   a^(-1) = %-2d\n", a, a, mod_inverse(a, 26));
+        }
+    }
+    printf("  Total valid multipliers: %d out of 26\n", count);
+
+    /* Part 3: Demonstration with Valid Key */
+    printf("\n[Part 3] Encryption & Decryption with Valid Key (a = 7, b = 3):\n");
+    int a_valid = 7, b_valid = 3;
+    int a_inv = mod_inverse(a_valid, 26);
+    char text[] = "AFFINECIPHER";
+    char cipher[100], decrypted[100];
+    int len = strlen(text);
+    int i;
+
+    for (i = 0; i < len; i++) {
+        cipher[i] = affine_encrypt_char(text[i], a_valid, b_valid);
+    }
+    cipher[len] = '\0';
+
+    for (i = 0; i < len; i++) {
+        decrypted[i] = affine_decrypt_char(cipher[i], a_inv, b_valid);
+    }
+    decrypted[len] = '\0';
+
+    printf("  Key               : a = %d, b = %d (a^(-1) = %d)\n", a_valid, b_valid, a_inv);
+    printf("  Original Text     : %s\n", text);
+    printf("  Ciphertext        : %s\n", cipher);
+    printf("  Decrypted Text    : %s\n", decrypted);
+    printf("  One-to-One Match  : %s\n", (strcmp(text, decrypted) == 0) ? "VERIFIED" : "FAILED");
+    printf("============================================================\n");
+
+    return 0;
+}

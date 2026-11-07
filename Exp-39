@@ -1,0 +1,120 @@
+/*
+ * ============================================================================
+ * Experiment 39: Automated Letter Frequency Attack on Additive Cipher
+ * ============================================================================
+ * Question:
+ * 39. Write a C program that can perform a letter frequency attack on an
+ *     additive cipher without human intervention. Your software should produce
+ *     possible plaintexts in rough order of likelihood. It would be good if
+ *     your user interface allowed the user to specify "give me the top 10
+ *     possible plaintexts."
+ * ============================================================================
+ */
+
+#include <stdio.h>
+#include <string.h>
+#include <ctype.h>
+#include <stdlib.h>
+
+#define MAX_LEN 1024
+
+/* Standard English Letter Frequencies (%) */
+static const double ENGLISH_FREQ[26] = {
+    8.167, 1.492, 2.782, 4.253, 12.702, 2.228,
+    2.015, 6.094, 6.966, 0.153, 0.772,  4.025,
+    2.406, 6.749, 7.507, 1.929, 0.095,  5.987,
+    6.327, 9.056, 2.758, 0.978, 2.360,  0.150,
+    1.974, 0.074
+};
+
+typedef struct {
+    int shift;
+    double score;
+    char text[MAX_LEN];
+} Candidate;
+
+int compare_candidates(const void *a, const void *b) {
+    const Candidate *ca = (const Candidate *)a;
+    const Candidate *cb = (const Candidate *)b;
+    if (ca->score < cb->score) return -1;
+    if (ca->score > cb->score) return 1;
+    return 0;
+}
+
+int main() {
+    char ciphertext[MAX_LEN];
+    Candidate candidates[26];
+    int top_n = 10;
+    int s, i;
+
+    printf("============================================================\n");
+    printf("Experiment 39: Letter Frequency Attack on Additive Cipher\n");
+    printf("============================================================\n");
+
+    const char *sample = "PHHW PH DIWHU WKH WRJD SDUWB WRQLJKW DW WKH FDVWOH";
+
+    printf("Enter ciphertext (or press Enter for default sample):\n");
+    if (fgets(ciphertext, sizeof(ciphertext), stdin)) {
+        int len = strlen(ciphertext);
+        if (len > 0 && ciphertext[len - 1] == '\n') {
+            ciphertext[len - 1] = '\0';
+        }
+    }
+    if (strlen(ciphertext) == 0) {
+        strcpy(ciphertext, sample);
+        printf("Using default sample ciphertext:\n%s\n", ciphertext);
+    }
+
+    printf("\nHow many top plaintexts would you like to view (1-26)? ");
+    if (scanf("%d", &top_n) != 1 || top_n < 1) top_n = 10;
+    if (top_n > 26) top_n = 26;
+
+    /* Evaluate all 26 possible additive shifts */
+    for (s = 0; s < 26; s++) {
+        int counts[26] = {0};
+        int total = 0;
+        candidates[s].shift = s;
+
+        /* Decrypt with shift s */
+        for (i = 0; ciphertext[i] != '\0'; i++) {
+            if (isalpha((unsigned char)ciphertext[i])) {
+                char base = isupper((unsigned char)ciphertext[i]) ? 'A' : 'a';
+                int c_val = toupper((unsigned char)ciphertext[i]) - 'A';
+                int p_val = (c_val - s + 26) % 26;
+                candidates[s].text[i] = base + p_val;
+                counts[p_val]++;
+                total++;
+            } else {
+                candidates[s].text[i] = ciphertext[i];
+            }
+        }
+        candidates[s].text[i] = '\0';
+
+        /* Compute Chi-Square statistic */
+        double chi = 0.0;
+        if (total > 0) {
+            for (i = 0; i < 26; i++) {
+                double expected = total * (ENGLISH_FREQ[i] / 100.0);
+                if (expected > 0.0) {
+                    double diff = counts[i] - expected;
+                    chi += (diff * diff) / expected;
+                }
+            }
+        }
+        candidates[s].score = chi;
+    }
+
+    /* Sort ascending by Chi-square score (lowest score = highest likelihood) */
+    qsort(candidates, 26, sizeof(Candidate), compare_candidates);
+
+    printf("\n============================================================\n");
+    printf("TOP %d MOST LIKELY PLAINTEXTS (Ranked by Chi-Square Score):\n", top_n);
+    printf("============================================================\n");
+    for (i = 0; i < top_n; i++) {
+        printf("[Rank %2d | Shift Key: %2d | Chi-Sq Score: %7.2f]\n%s\n\n",
+               i + 1, candidates[i].shift, candidates[i].score, candidates[i].text);
+    }
+    printf("============================================================\n");
+
+    return 0;
+}
