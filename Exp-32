@@ -1,0 +1,177 @@
+/*
+ * ============================================================================
+ * Experiment 32: DSA Random Parameter k vs Deterministic RSA Signatures
+ * ============================================================================
+ * Question:
+ * 32. Write a C program for DSA, because the value of k is generated for each
+ *     signature, even if the same message is signed twice on different
+ *     occasions, the signatures will differ. This is not true of RSA signatures.
+ *     Write a C program for implication of this difference?
+ *
+ * THEORETICAL ANALYSIS & IMPLICATIONS:
+ * ----------------------------------------------------------------------------
+ * 1. Randomized vs Deterministic Signatures:
+ *    - In basic RSA, S = M^d mod n is deterministic: signing the exact same
+ *      message with the same private key always generates the IDENTICAL signature.
+ *    - In DSA, each signature uses a fresh, secret ephemeral nonce k in (1, q-1):
+ *          r = (g^k mod p) mod q
+ *          s = k^(-1) * (H(M) + x*r) mod q
+ *      Because k is freshly chosen for every signature, signing the same
+ *      message twice produces completely DIFFERENT (r, s) signatures.
+ *
+ * 2. Major Implications:
+ *    a. Resistance to Correlation & Known-Signature Attacks:
+ *       In DSA, observers cannot tell if the same message was signed twice just
+ *       by looking at the signatures. In deterministic RSA, identical signatures
+ *       immediately leak that the same message was signed.
+ *    b. CATASTROPHIC Nonce Reuse Flaw in DSA (The Sony PS3 vulnerability):
+ *       If a DSA signer accidentally uses the SAME k to sign two different
+ *       messages M1 and M2, an attacker can trivially recover the secret nonce k:
+ *           k = (H(M1) - H(M2)) / (s1 - s2) mod q
+ *       And immediately extract the signer's master private key x:
+ *           x = (s1 * k - H(M1)) / r mod q
+ *       This breaks the signer's security permanently! RSA does not have this flaw.
+ *    c. Critical Dependency on a High-Quality CSPRNG:
+ *       DSA requires strong entropy. Any bias in k leaks the private key.
+ *       RSA signature generation requires zero random bits during signing.
+ * ============================================================================
+ */
+
+#include <stdio.h>
+#include <stdint.h>
+#include <stdbool.h>
+
+/* Modular arithmetic utilities */
+long long extended_euclidean(long long a, long long b, long long *x, long long *y) {
+    if (b == 0) {
+        *x = 1;
+        *y = 0;
+        return a;
+    }
+    long long x1, y1;
+    long long g = extended_euclidean(b, a % b, &x1, &y1);
+    *x = y1;
+    *y = x1 - (a / b) * y1;
+    return g;
+}
+
+long long mod_inverse(long long a, long long m) {
+    long long x, y;
+    long long g = extended_euclidean(a, m, &x, &y);
+    if (g != 1) return -1;
+    return (x % m + m) % m;
+}
+
+long long mod_exp(long long base, long long exp, long long mod) {
+    long long res = 1;
+    base = base % mod;
+    while (exp > 0) {
+        if (exp % 2 == 1) res = (res * base) % mod;
+        base = (base * base) % mod;
+        exp /= 2;
+    }
+    return res;
+}
+
+/* DSA Signing */
+void dsa_sign(long long m, long long k, long long p, long long q, long long g,
+              long long x, long long *r, long long *s) {
+    *r = mod_exp(g, k, p) % q;
+    long long k_inv = mod_inverse(k, q);
+    *s = (k_inv * (m + x * (*r))) % q;
+}
+
+/* DSA Verification */
+bool dsa_verify(long long m, long long r, long long s, long long p, long long q,
+                long long g, long long y) {
+    if (r <= 0 || r >= q || s <= 0 || s >= q) return false;
+    long long w = mod_inverse(s, q);
+    long long u1 = (m * w) % q;
+    long long u2 = (r * w) % q;
+    long long v = ((mod_exp(g, u1, p) * mod_exp(y, u2, p)) % p) % q;
+    return (v == r);
+}
+
+int main() {
+    printf("============================================================\n");
+    printf("Experiment 32: DSA Random Parameter k vs RSA Determinism\n");
+    printf("============================================================\n");
+
+    /* DSA Domain Parameters */
+    long long p = 7879; /* Prime */
+    long long q = 101;  /* Prime divisor of p - 1 = 7878 */
+    long long g = 170;  /* Generator of order q mod p */
+    long long x = 45;   /* Private key (x < q) */
+    long long y = mod_exp(g, x, p); /* Public key (y = 6797) */
+
+    printf("DSA Parameters : p = %lld, q = %lld, g = %lld\n", p, q, g);
+    printf("DSA Public Key : y = %lld, Private Key: x = %lld\n", y, x);
+
+    /* --- Part 1: Signing the same message twice in DSA --- */
+    printf("\n[Part 1] Signing Same Message Twice in DSA with Different k:\n");
+    long long message = 50; /* Hash H(M) */
+    long long k1 = 23;
+    long long k2 = 67;
+    long long r1, s1, r2, s2;
+
+    dsa_sign(message, k1, p, q, g, x, &r1, &s1);
+    dsa_sign(message, k2, p, q, g, x, &r2, &s2);
+
+    printf("  Message Hash H(M) : %lld\n", message);
+    printf("  Signature 1 (k=%lld): (r1 = %lld, s1 = %lld) -> Valid: %s\n",
+           k1, r1, s1, dsa_verify(message, r1, s1, p, q, g, y) ? "YES" : "NO");
+    printf("  Signature 2 (k=%lld): (r2 = %lld, s2 = %lld) -> Valid: %s\n",
+           k2, r2, s2, dsa_verify(message, r2, s2, p, q, g, y) ? "YES" : "NO");
+    printf("  Observation: Signatures differ completely (%lld!=%lld or %lld!=%lld)\n",
+           r1, r2, s1, s2);
+    printf("               yet BOTH verify successfully!\n");
+
+    /* --- Part 2: Comparison with RSA Determinism --- */
+    printf("\n[Part 2] Signing Same Message Twice in RSA (n = 3599, d = 3031):\n");
+    long long rsa_n = 3599, rsa_d = 3031;
+    long long rsa_sig1 = mod_exp(message, rsa_d, rsa_n);
+    long long rsa_sig2 = mod_exp(message, rsa_d, rsa_n);
+    printf("  RSA Signature 1   : %lld\n", rsa_sig1);
+    printf("  RSA Signature 2   : %lld\n", rsa_sig2);
+    printf("  Observation: RSA signatures are IDENTICAL (deterministic).\n");
+
+    /* --- Part 3: Catastrophic Implication of Nonce Reuse in DSA --- */
+    printf("\n[Part 3] CATASTROPHIC IMPLICATION: Reusing k in DSA\n");
+    long long m1 = 40;
+    long long m2 = 75;
+    long long k_reused = 37;
+    long long r_a, s_a, r_b, s_b;
+
+    dsa_sign(m1, k_reused, p, q, g, x, &r_a, &s_a);
+    dsa_sign(m2, k_reused, p, q, g, x, &r_b, &s_b);
+
+    printf("  Message 1: H(M1) = %lld, Sig1 = (r = %lld, s1 = %lld)\n", m1, r_a, s_a);
+    printf("  Message 2: H(M2) = %lld, Sig2 = (r = %lld, s2 = %lld)\n", m2, r_b, s_b);
+    printf("  Notice: Both signatures have the SAME r = %lld!\n", r_a);
+
+    /* Attacker recovers k and private key x */
+    long long diff_m = (m1 - m2) % q;
+    if (diff_m < 0) diff_m += q;
+    long long diff_s = (s_a - s_b) % q;
+    if (diff_s < 0) diff_s += q;
+    long long diff_s_inv = mod_inverse(diff_s, q);
+
+    long long cracked_k = (diff_m * diff_s_inv) % q;
+    long long r_inv = mod_inverse(r_a, q);
+    long long cracked_x = (((s_a * cracked_k - m1) % q + q) % q * r_inv) % q;
+
+    printf("\n  --- Attacker Exploit ---\n");
+    printf("  Recovered Ephemeral Nonce k : %lld (Actual k: %lld)\n", cracked_k, k_reused);
+    printf("  CRACKED PRIVATE KEY x       : %lld (Actual x: %lld)\n", cracked_x, x);
+    printf("  Exploit Status              : %s! TOTAL PRIVATE KEY COMPROMISE!\n",
+           (cracked_x == x) ? "SUCCESS" : "FAILED");
+
+    printf("\nSUMMARY OF IMPLICATIONS:\n");
+    printf("  1. Security: DSA randomized signatures prevent signature-matching leaks.\n");
+    printf("  2. Fragility: A single reused or predictable 'k' completely reveals the\n");
+    printf("     signer's master private key x (e.g. PlayStation 3 hack).\n");
+    printf("  3. Modern fix: Use deterministic DSA (RFC 6979) where k = HMAC(x, H(m)).\n");
+    printf("============================================================\n");
+
+    return 0;
+}

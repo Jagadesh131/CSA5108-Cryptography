@@ -1,0 +1,187 @@
+/*
+ * ============================================================================
+ * Experiment 31: Subkey Generation in CMAC (NIST SP 800-38B / RFC 4493)
+ * ============================================================================
+ * Question:
+ * 31. Write a C program for subkey generation in CMAC, it states that the
+ *     block cipher is applied to the block that consists entirely of 0 bits.
+ *     The first subkey is derived from the resulting string by a left shift of
+ *     one bit and, conditionally, by XORing a constant that depends on the
+ *     block size. The second subkey is derived in the same manner from the
+ *     first subkey.
+ *     a. What constants are needed for block sizes of 64 and 128 bits?
+ *     b. How the left shift and XOR accomplishes the desired result.
+ *
+ * THEORETICAL ANALYSIS & ANSWERS:
+ * ----------------------------------------------------------------------------
+ * Part a: What constants are needed for block sizes of 64 and 128 bits?
+ * ----------------------------------------------------------------------------
+ * In CMAC (OMAC1), subkeys are elements of the Galois Field GF(2^b) where b is
+ * the block size in bits:
+ * 1. For 64-bit blocks (b = 64):
+ *    - Irreducible polynomial: P_64(x) = x^64 + x^4 + x^3 + x + 1
+ *    - Constant R_64 = 0x000000000000001B (or binary 00011011 = 27 in decimal)
+ * 2. For 128-bit blocks (b = 128):
+ *    - Irreducible polynomial: P_128(x) = x^128 + x^7 + x^2 + x + 1
+ *    - Constant R_128 = 0x00000000000000000000000000000087 (binary 10000111 = 135)
+ *
+ * ----------------------------------------------------------------------------
+ * Part b: How the left shift and XOR accomplishes the desired result:
+ * ----------------------------------------------------------------------------
+ * 1. Multiplication by x in GF(2^b):
+ *    In finite field GF(2^b), elements are represented as polynomials of degree
+ *    at most b - 1 with coefficients in {0, 1}.
+ *    Multiplying a field element L(x) by the polynomial variable x shifts each
+ *    coefficient up by 1 position:
+ *        L(x) * x = l_{b-1}*x^b + l_{b-2}*x^{b-1} + ... + l_0*x
+ *    In binary representation, this corresponds directly to a LEFT SHIFT by 1 bit (L << 1).
+ *
+ * 2. Modular Reduction (Conditional XOR):
+ *    - If the most significant bit (MSB) of L was 0 (l_{b-1} = 0):
+ *      The degree of the product is <= b - 1, which is already reduced.
+ *      No reduction is needed: K1 = L << 1.
+ *    - If the most significant bit (MSB) of L was 1 (l_{b-1} = 1):
+ *      The product contains an x^b term, exceeding the field degree limit.
+ *      It must be reduced modulo the irreducible polynomial P(x) = x^b + R_b.
+ *      Since x^b = R_b in GF(2^b), reducing modulo P(x) in characteristic-2
+ *      arithmetic (where addition and subtraction are XOR) corresponds precisely
+ *      to XORing the constant R_b:
+ *          K1 = (L << 1) ^ R_b
+ *
+ * 3. Deriving the Second Subkey K2:
+ *    K2 is computed identically by multiplying K1 by x in GF(2^b):
+ *    If MSB(K1) == 0: K2 = K1 << 1; else K2 = (K1 << 1) ^ R_b.
+ *    Mathematically: K1 = L * x, and K2 = K1 * x = L * x^2 in GF(2^b).
+ * ============================================================================
+ */
+
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+
+/* Constants for CMAC */
+#define CONST_64  0x1BULL
+static const uint8_t CONST_128[16] = {
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x87
+};
+
+/* 64-bit CMAC Subkey Generation */
+void cmac_generate_subkeys_64(uint64_t L, uint64_t *K1, uint64_t *K2) {
+    int msb_L = (L >> 63) & 1;
+    *K1 = (L << 1);
+    if (msb_L) {
+        *K1 ^= CONST_64;
+    }
+
+    int msb_K1 = (*K1 >> 63) & 1;
+    *K2 = (*K1 << 1);
+    if (msb_K1) {
+        *K2 ^= CONST_64;
+    }
+}
+
+/* 128-bit Left Shift by 1 bit */
+void shift_left_128(const uint8_t in[16], uint8_t out[16], int *msb) {
+    int i;
+    uint8_t carry = 0;
+    *msb = (in[0] >> 7) & 1;
+
+    for (i = 15; i >= 0; i--) {
+        uint8_t next_carry = (in[i] >> 7) & 1;
+        out[i] = (in[i] << 1) | carry;
+        carry = next_carry;
+    }
+}
+
+/* 128-bit CMAC Subkey Generation (RFC 4493) */
+void cmac_generate_subkeys_128(const uint8_t L[16], uint8_t K1[16], uint8_t K2[16]) {
+    int msb;
+    int i;
+
+    /* Step 1: K1 = L << 1 */
+    shift_left_128(L, K1, &msb);
+    if (msb) {
+        for (i = 0; i < 16; i++) {
+            K1[i] ^= CONST_128[i];
+        }
+    }
+
+    /* Step 2: K2 = K1 << 1 */
+    shift_left_128(K1, K2, &msb);
+    if (msb) {
+        for (i = 0; i < 16; i++) {
+            K2[i] ^= CONST_128[i];
+        }
+    }
+}
+
+void print_hex128(const char *label, const uint8_t data[16]) {
+    int i;
+    printf("%-16s: ", label);
+    for (i = 0; i < 16; i++) {
+        printf("%02X", data[i]);
+        if (i % 4 == 3 && i != 15) printf(" ");
+    }
+    printf("\n");
+}
+
+int main() {
+    printf("============================================================\n");
+    printf("Experiment 31: Subkey Generation in CMAC\n");
+    printf("============================================================\n");
+
+    printf("\n[Part a] Constants for block sizes:\n");
+    printf("  1. For 64-bit block size  (b = 64) : R_64  = 0x000000000000001B (0x1B)\n");
+    printf("     Irreducible polynomial: x^64 + x^4 + x^3 + x + 1\n");
+    printf("  2. For 128-bit block size (b = 128): R_128 = 0x...00000087 (0x87)\n");
+    printf("     Irreducible polynomial: x^128 + x^7 + x^2 + x + 1\n");
+
+    printf("\n[Part b] How Left Shift and XOR accomplishes multiplication:\n");
+    printf("  - In GF(2^b), multiplication by polynomial 'x' shifts bits left by 1.\n");
+    printf("  - If MSB == 0, the resulting degree is < b, so no reduction is needed.\n");
+    printf("  - If MSB == 1, degree reaches b; reduction mod P(x) = x^b + R_b\n");
+    printf("    is achieved in characteristic-2 by XORing with constant R_b.\n");
+
+    /* Demonstration 1: 64-bit blocks */
+    printf("\n--- Demonstration 1: 64-bit Block Subkey Generation ---\n");
+    uint64_t L64 = 0x8A12B34C5D6E7F01ULL;
+    uint64_t K1_64, K2_64;
+    cmac_generate_subkeys_64(L64, &K1_64, &K2_64);
+    printf("L = CIPH_K(0^64) : %016llX (MSB = %llu)\n",
+           (unsigned long long)L64, (unsigned long long)((L64 >> 63) & 1));
+    printf("Subkey K1        : %016llX (MSB = %llu)\n",
+           (unsigned long long)K1_64, (unsigned long long)((K1_64 >> 63) & 1));
+    printf("Subkey K2        : %016llX\n", (unsigned long long)K2_64);
+
+    /* Demonstration 2: 128-bit blocks (RFC 4493 Test Vector) */
+    printf("\n--- Demonstration 2: 128-bit Block Subkey Generation (RFC 4493) ---\n");
+    /* L = AES-128(K, 0^128) where K = 2B7E1516 28AED2A6 ABF71588 09CF4F3C */
+    uint8_t L128[16] = {
+        0x7D, 0xF7, 0x6B, 0x0C, 0x1A, 0xB8, 0x99, 0xB3,
+        0x3E, 0x42, 0xF0, 0x47, 0xB9, 0x1B, 0x54, 0x6F
+    };
+    uint8_t K1_128[16], K2_128[16];
+    cmac_generate_subkeys_128(L128, K1_128, K2_128);
+
+    print_hex128("L = AES_K(0)", L128);
+    print_hex128("Subkey K1", K1_128);
+    print_hex128("Subkey K2", K2_128);
+
+    /* Verification against RFC 4493 test vectors */
+    uint8_t exp_k1[16] = {
+        0xFB, 0xEE, 0xD6, 0x18, 0x35, 0x71, 0x33, 0x66,
+        0x7C, 0x85, 0xE0, 0x8F, 0x72, 0x36, 0xA8, 0xDE
+    };
+    uint8_t exp_k2[16] = {
+        0xF7, 0xDD, 0xAC, 0x30, 0x6A, 0xE2, 0x66, 0xCC,
+        0xF9, 0x0B, 0xC1, 0x1E, 0xE4, 0x6D, 0x51, 0x3B
+    };
+
+    if (memcmp(K1_128, exp_k1, 16) == 0 && memcmp(K2_128, exp_k2, 16) == 0) {
+        printf("\nRFC 4493 Standard Test Vectors Matched Perfectly!\n");
+    }
+
+    printf("============================================================\n");
+    return 0;
+}

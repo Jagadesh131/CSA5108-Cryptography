@@ -1,0 +1,245 @@
+/*
+ * ============================================================================
+ * Experiment 34: Block Cipher Modes (ECB, CBC, CFB) and Unambiguous Padding
+ * ============================================================================
+ * Question:
+ * 34. Write a C program for ECB, CBC, and CFB modes, the plaintext must be a
+ *     sequence of one or more complete data blocks (or, for CFB mode, data
+ *     segments). In other words, for these three modes, the total number of
+ *     bits in the plaintext must be a positive multiple of the block (or
+ *     segment) size. One common method of padding, if needed, consists of a
+ *     1 bit followed by as few zero bits, possibly none, as are necessary to
+ *     complete the final block. It is considered good practice for the sender
+ *     to pad every message, including messages in which the final message block
+ *     is already complete. What is the motivation for including a padding block
+ *     when padding is not needed?
+ *
+ * ============================================================================
+ * MOTIVATION FOR ALWAYS INCLUDING A PADDING BLOCK:
+ * ============================================================================
+ * 1. Unambiguous Depadding at Receiver:
+ *    If padding were only added when a message is not an exact multiple of the
+ *    block size, the receiver would have no way of knowing whether the last
+ *    block contains padding or if the plaintext naturally ended with a '1' bit
+ *    followed by '0' bits.
+ *
+ * 2. Deterministic & Uniform Rule:
+ *    When the sender unconditionally pads every message (even messages whose
+ *    length is already an exact multiple of the block size, by appending a full
+ *    padding block starting with a '1' bit followed by all '0' bits):
+ *    - The receiver always applies the exact same rule without needing extra
+ *      metadata or length fields.
+ *    - The receiver simply scans backwards from the end of the decrypted
+ *      message, strips all trailing '0' bits, and removes the first '1' bit.
+ *    - Everything preceding that '1' bit is guaranteed to be the exact original
+ *      plaintext.
+ *    - No valid user data is ever mistakenly stripped or corrupted.
+ * ============================================================================
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
+
+#define BLOCK_SIZE 8 /* 64-bit block size (8 bytes) */
+
+static uint32_t round_func(uint32_t r, uint32_t subkey) {
+    uint32_t x = r ^ subkey;
+    return ((x << 5) | (x >> 27)) + 0x9E3779B9;
+}
+
+void encrypt_block(const uint8_t in[BLOCK_SIZE], uint8_t out[BLOCK_SIZE], const uint8_t key[BLOCK_SIZE]) {
+    uint32_t L = ((uint32_t)in[0] << 24) | ((uint32_t)in[1] << 16) | ((uint32_t)in[2] << 8) | in[3];
+    uint32_t R = ((uint32_t)in[4] << 24) | ((uint32_t)in[5] << 16) | ((uint32_t)in[6] << 8) | in[7];
+    uint32_t k0 = ((uint32_t)key[0] << 24) | ((uint32_t)key[1] << 16) | ((uint32_t)key[2] << 8) | key[3];
+    uint32_t k1 = ((uint32_t)key[4] << 24) | ((uint32_t)key[5] << 16) | ((uint32_t)key[6] << 8) | key[7];
+    uint32_t subkeys[4] = { k0, k1, k0 ^ 0x55555555, k1 ^ 0xAAAAAAAA };
+    int i;
+
+    for (i = 0; i < 4; i++) {
+        uint32_t next_R = L ^ round_func(R, subkeys[i]);
+        L = R;
+        R = next_R;
+    }
+
+    out[0] = (uint8_t)(R >> 24); out[1] = (uint8_t)(R >> 16); out[2] = (uint8_t)(R >> 8); out[3] = (uint8_t)R;
+    out[4] = (uint8_t)(L >> 24); out[5] = (uint8_t)(L >> 16); out[6] = (uint8_t)(L >> 8); out[7] = (uint8_t)L;
+}
+
+void decrypt_block(const uint8_t in[BLOCK_SIZE], uint8_t out[BLOCK_SIZE], const uint8_t key[BLOCK_SIZE]) {
+    uint32_t R = ((uint32_t)in[0] << 24) | ((uint32_t)in[1] << 16) | ((uint32_t)in[2] << 8) | in[3];
+    uint32_t L = ((uint32_t)in[4] << 24) | ((uint32_t)in[5] << 16) | ((uint32_t)in[6] << 8) | in[7];
+    uint32_t k0 = ((uint32_t)key[0] << 24) | ((uint32_t)key[1] << 16) | ((uint32_t)key[2] << 8) | key[3];
+    uint32_t k1 = ((uint32_t)key[4] << 24) | ((uint32_t)key[5] << 16) | ((uint32_t)key[6] << 8) | key[7];
+    uint32_t subkeys[4] = { k0, k1, k0 ^ 0x55555555, k1 ^ 0xAAAAAAAA };
+    int i;
+
+    for (i = 3; i >= 0; i--) {
+        uint32_t prev_L = R ^ round_func(L, subkeys[i]);
+        R = L;
+        L = prev_L;
+    }
+
+    out[0] = (uint8_t)(L >> 24); out[1] = (uint8_t)(L >> 16); out[2] = (uint8_t)(L >> 8); out[3] = (uint8_t)L;
+    out[4] = (uint8_t)(R >> 24); out[5] = (uint8_t)(R >> 16); out[6] = (uint8_t)(R >> 8); out[7] = (uint8_t)R;
+}
+
+int pad_message(const uint8_t *in, int in_len, uint8_t *out) {
+    int pad_len = BLOCK_SIZE - (in_len % BLOCK_SIZE);
+    int total_len;
+    int i;
+
+    if (pad_len == 0) {
+        pad_len = BLOCK_SIZE;
+    }
+    total_len = in_len + pad_len;
+
+    memcpy(out, in, in_len);
+    out[in_len] = 0x80; /* '1' bit followed by '0' bits */
+    for (i = in_len + 1; i < total_len; i++) {
+        out[i] = 0x00;
+    }
+    return total_len;
+}
+
+int unpad_message(const uint8_t *in, int total_len, uint8_t *out) {
+    int i = total_len - 1;
+    while (i >= 0 && in[i] == 0x00) {
+        i--;
+    }
+    if (i < 0 || in[i] != 0x80) {
+        printf("Error: Invalid padding detected!\n");
+        return -1;
+    }
+    memcpy(out, in, i);
+    out[i] = '\0';
+    return i;
+}
+
+void print_hex(const char *label, const uint8_t *data, int len) {
+    int i;
+    printf("%-20s: ", label);
+    for (i = 0; i < len; i++) {
+        printf("%02X ", data[i]);
+    }
+    printf("\n");
+}
+
+/* 1. ECB Mode */
+void ecb_encrypt(const uint8_t *pt, int len, uint8_t *ct, const uint8_t *key) {
+    int i;
+    for (i = 0; i < len; i += BLOCK_SIZE) {
+        encrypt_block(pt + i, ct + i, key);
+    }
+}
+
+void ecb_decrypt(const uint8_t *ct, int len, uint8_t *dt, const uint8_t *key) {
+    int i;
+    for (i = 0; i < len; i += BLOCK_SIZE) {
+        decrypt_block(ct + i, dt + i, key);
+    }
+}
+
+/* 2. CBC Mode */
+void cbc_encrypt(const uint8_t *pt, int len, uint8_t *ct, const uint8_t *key, const uint8_t *iv) {
+    uint8_t prev[BLOCK_SIZE], block[BLOCK_SIZE];
+    int i, j;
+    memcpy(prev, iv, BLOCK_SIZE);
+    for (i = 0; i < len; i += BLOCK_SIZE) {
+        for (j = 0; j < BLOCK_SIZE; j++) block[j] = pt[i + j] ^ prev[j];
+        encrypt_block(block, ct + i, key);
+        memcpy(prev, ct + i, BLOCK_SIZE);
+    }
+}
+
+void cbc_decrypt(const uint8_t *ct, int len, uint8_t *dt, const uint8_t *key, const uint8_t *iv) {
+    uint8_t prev[BLOCK_SIZE], block[BLOCK_SIZE];
+    int i, j;
+    memcpy(prev, iv, BLOCK_SIZE);
+    for (i = 0; i < len; i += BLOCK_SIZE) {
+        decrypt_block(ct + i, block, key);
+        for (j = 0; j < BLOCK_SIZE; j++) dt[i + j] = block[j] ^ prev[j];
+        memcpy(prev, ct + i, BLOCK_SIZE);
+    }
+}
+
+/* 3. CFB Mode */
+void cfb_encrypt(const uint8_t *pt, int len, uint8_t *ct, const uint8_t *key, const uint8_t *iv) {
+    uint8_t shift_reg[BLOCK_SIZE], out_block[BLOCK_SIZE];
+    int i, j;
+    memcpy(shift_reg, iv, BLOCK_SIZE);
+    for (i = 0; i < len; i += BLOCK_SIZE) {
+        encrypt_block(shift_reg, out_block, key);
+        for (j = 0; j < BLOCK_SIZE; j++) ct[i + j] = pt[i + j] ^ out_block[j];
+        memcpy(shift_reg, ct + i, BLOCK_SIZE);
+    }
+}
+
+void cfb_decrypt(const uint8_t *ct, int len, uint8_t *dt, const uint8_t *key, const uint8_t *iv) {
+    uint8_t shift_reg[BLOCK_SIZE], out_block[BLOCK_SIZE];
+    int i, j;
+    memcpy(shift_reg, iv, BLOCK_SIZE);
+    for (i = 0; i < len; i += BLOCK_SIZE) {
+        encrypt_block(shift_reg, out_block, key);
+        for (j = 0; j < BLOCK_SIZE; j++) dt[i + j] = ct[i + j] ^ out_block[j];
+        memcpy(shift_reg, ct + i, BLOCK_SIZE);
+    }
+}
+
+void test_modes(const char *title, const char *msg, const uint8_t *key, const uint8_t *iv) {
+    int orig_len = strlen(msg);
+    uint8_t padded[256], cipher[256], decrypted[256], recovered[256];
+    int padded_len, rec_len;
+
+    printf("\n------------------------------------------------------------\n");
+    printf("DEMONSTRATION: %s\n", title);
+    printf("------------------------------------------------------------\n");
+    printf("Original Message    : \"%s\" (%d bytes)\n", msg, orig_len);
+
+    padded_len = pad_message((const uint8_t *)msg, orig_len, padded);
+    printf("Padded Length       : %d bytes (%d blocks)\n", padded_len, padded_len / BLOCK_SIZE);
+    if (orig_len % BLOCK_SIZE == 0) {
+        printf("Note: Exact block multiple -> full %d-byte dummy block added!\n", BLOCK_SIZE);
+    }
+    print_hex("Padded Plaintext", padded, padded_len);
+
+    /* ECB */
+    ecb_encrypt(padded, padded_len, cipher, key);
+    ecb_decrypt(cipher, padded_len, decrypted, key);
+    rec_len = unpad_message(decrypted, padded_len, recovered);
+    printf("ECB Recovered       : \"%s\" (len: %d)\n", recovered, rec_len);
+
+    /* CBC */
+    cbc_encrypt(padded, padded_len, cipher, key, iv);
+    cbc_decrypt(cipher, padded_len, decrypted, key, iv);
+    rec_len = unpad_message(decrypted, padded_len, recovered);
+    printf("CBC Recovered       : \"%s\" (len: %d)\n", recovered, rec_len);
+
+    /* CFB */
+    cfb_encrypt(padded, padded_len, cipher, key, iv);
+    cfb_decrypt(cipher, padded_len, decrypted, key, iv);
+    rec_len = unpad_message(decrypted, padded_len, recovered);
+    printf("CFB Recovered       : \"%s\" (len: %d)\n", recovered, rec_len);
+}
+
+int main() {
+    uint8_t key[BLOCK_SIZE] = { 0x13, 0x57, 0x9B, 0xDF, 0x24, 0x68, 0xAC, 0xE0 };
+    uint8_t iv[BLOCK_SIZE]  = { 0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54, 0x32, 0x10 };
+
+    printf("============================================================\n");
+    printf("Experiment 34: Modes of Operation and Padding Analysis\n");
+    printf("============================================================\n");
+
+    printf("\nQUESTION ANSWER: Motivation for including a padding block when not needed?\n");
+    printf("  1. Deterministic Depadding: The receiver must always strip padding.\n");
+    printf("  2. Ambiguity Prevention: Without an extra padding block, if a message\n");
+    printf("     ends naturally with '100...0', the receiver would corrupt data\n");
+    printf("     by mistaking legitimate message bits for padding!\n");
+
+    test_modes("Case 1: Message needing padding (9 bytes)", "SECURITY!", key, iv);
+    test_modes("Case 2: Message already exact block multiple (16 bytes)", "EXACT_16_BYTES!!", key, iv);
+
+    printf("============================================================\n");
+    return 0;
+}
